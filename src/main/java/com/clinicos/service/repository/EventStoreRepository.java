@@ -26,6 +26,7 @@ public interface EventStoreRepository extends JpaRepository<EventStore, Integer>
     @Query("SELECT e FROM EventStore e WHERE e.organization.id = :orgId " +
             "AND e.serverReceivedAt > :since " +
             "AND e.deviceId != :excludeDeviceId " +
+            "AND e.status = 'APPLIED' " +
             "ORDER BY e.serverReceivedAt ASC")
     List<EventStore> findEventsForPull(
             @Param("orgId") Integer orgId,
