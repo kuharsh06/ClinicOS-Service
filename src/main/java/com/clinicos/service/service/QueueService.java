@@ -50,21 +50,16 @@ public class QueueService {
         Organization org = organizationRepository.findByUuid(orgUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
 
-        OrgMember doctor = orgMemberRepository.findByOrganizationIdWithUser(org.getId())
-                .stream()
-                .filter(m -> m.getUser().getUuid().equals(doctorUuid))
-                .findFirst()
+        OrgMember doctor = orgMemberRepository.findByOrgIdAndUserUuid(org.getId(), doctorUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Doctor", doctorUuid));
 
-        // Find active or paused queue
-        Optional<Queue> activeQueue = queueRepository.findByDoctorIdAndStatus(doctor.getId(), QueueStatus.ACTIVE);
-        if (activeQueue.isEmpty()) {
-            activeQueue = queueRepository.findByDoctorIdAndStatus(doctor.getId(), QueueStatus.PAUSED);
-        }
+        // Find active or paused queue (single query)
+        List<Queue> activeQueues = queueRepository.findByDoctorIdAndStatusIn(
+                doctor.getId(), List.of(QueueStatus.ACTIVE, QueueStatus.PAUSED));
 
         QueueResponse.QueueSnapshot queueSnapshot = null;
-        if (activeQueue.isPresent()) {
-            queueSnapshot = buildQueueSnapshot(activeQueue.get());
+        if (!activeQueues.isEmpty()) {
+            queueSnapshot = buildQueueSnapshot(activeQueues.get(0));
         }
 
         // Find stashed entries from most recently ended queue
@@ -102,7 +97,7 @@ public class QueueService {
                 .phone(patient.getPhone())
                 .name(patient.getName())
                 .age(patient.getAge())
-                .gender(patient.getGender() != null ? patient.getGender().name() : null)
+                .gender(patient.getGender() != null ? patient.getGender().getValue() : null)
                 .totalVisits(patient.getTotalVisits())
                 .lastVisitDate(patient.getLastVisitDate() != null ? patient.getLastVisitDate().toString() : null)
                 .lastComplaintTags(lastTags)
@@ -180,6 +175,10 @@ public class QueueService {
 
         Queue sourceQueue = queueRepository.findByUuid(request.getSourceQueueId())
                 .orElseThrow(() -> new ResourceNotFoundException("Source Queue", request.getSourceQueueId()));
+
+        if (sourceQueue.getStatus() != QueueStatus.ENDED) {
+            throw new BusinessException("INVALID_SOURCE_QUEUE", "Can only import stash from an ended queue", false);
+        }
 
         // Find stashed entries from source queue
         List<QueueEntry> stashedEntries = queueEntryRepository.findByQueueIdAndStateOrderByPositionAsc(
@@ -273,7 +272,7 @@ public class QueueService {
     }
 
     private QueueResponse.QueueSnapshot buildQueueSnapshot(Queue queue) {
-        List<QueueEntry> entries = queueEntryRepository.findByQueueIdOrderByPositionAsc(queue.getId());
+        List<QueueEntry> entries = queueEntryRepository.findByQueueIdWithDetailsOrderByPositionAsc(queue.getId());
 
         List<QueueResponse.QueueEntryFull> entryDtos = entries.stream()
                 .map(this::buildQueueEntryFull)
@@ -316,7 +315,7 @@ public class QueueService {
                 .patientName(patient.getName())
                 .patientPhone(patient.getPhone())
                 .patientAge(patient.getAge())
-                .patientGender(patient.getGender() != null ? patient.getGender().name() : null)
+                .patientGender(patient.getGender() != null ? patient.getGender().getValue() : null)
                 .isReturningPatient(patient.getTotalVisits() > 0)
                 .totalPreviousVisits(patient.getTotalVisits())
                 .build();
@@ -324,28 +323,18 @@ public class QueueService {
 
     private List<QueueResponse.QueueEntryFull> findPreviousQueueStash(Integer doctorId) {
         // Find the most recently ended queue for this doctor that has stashed entries
-        List<Queue> endedQueues = queueRepository.findByDoctorIdAndStatusIn(
-                doctorId, List.of(QueueStatus.ENDED));
-
-        // Sort by endedAt descending to get most recent first
-        endedQueues.sort((a, b) -> {
-            if (a.getEndedAt() == null) return 1;
-            if (b.getEndedAt() == null) return -1;
-            return b.getEndedAt().compareTo(a.getEndedAt());
-        });
-
-        for (Queue endedQueue : endedQueues) {
-            List<QueueEntry> stashedEntries = queueEntryRepository.findByQueueIdAndStateOrderByPositionAsc(
-                    endedQueue.getId(), QueueEntryState.STASHED);
-
-            if (!stashedEntries.isEmpty()) {
-                return stashedEntries.stream()
-                        .map(this::buildQueueEntryFull)
-                        .collect(Collectors.toList());
-            }
+        // Find most recently ended queue (single query instead of loading all)
+        Optional<Queue> lastEnded = queueRepository.findMostRecentEndedQueue(doctorId);
+        if (lastEnded.isEmpty()) {
+            return List.of();
         }
 
-        return List.of();
+        List<QueueEntry> stashedEntries = queueEntryRepository.findByQueueIdAndStateWithDetailsOrderByPositionAsc(
+                lastEnded.get().getId(), QueueEntryState.STASHED);
+
+        return stashedEntries.stream()
+                .map(this::buildQueueEntryFull)
+                .collect(Collectors.toList());
     }
 
     private List<String> parseJsonArray(String json) {

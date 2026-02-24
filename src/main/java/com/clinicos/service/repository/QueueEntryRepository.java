@@ -17,6 +17,21 @@ public interface QueueEntryRepository extends JpaRepository<QueueEntry, Integer>
 
     List<QueueEntry> findByQueueIdOrderByPositionAsc(Integer queueId);
 
+    @Query("SELECT qe FROM QueueEntry qe " +
+            "JOIN FETCH qe.patient " +
+            "LEFT JOIN FETCH qe.bill " +
+            "LEFT JOIN FETCH qe.stashedFromQueue " +
+            "WHERE qe.queue.id = :queueId ORDER BY qe.position ASC")
+    List<QueueEntry> findByQueueIdWithDetailsOrderByPositionAsc(@Param("queueId") Integer queueId);
+
+    @Query("SELECT qe FROM QueueEntry qe " +
+            "JOIN FETCH qe.patient " +
+            "LEFT JOIN FETCH qe.bill " +
+            "LEFT JOIN FETCH qe.stashedFromQueue " +
+            "WHERE qe.queue.id = :queueId AND qe.state = :state ORDER BY qe.position ASC")
+    List<QueueEntry> findByQueueIdAndStateWithDetailsOrderByPositionAsc(
+            @Param("queueId") Integer queueId, @Param("state") QueueEntryState state);
+
     List<QueueEntry> findByQueueIdAndStateOrderByPositionAsc(Integer queueId, QueueEntryState state);
 
     List<QueueEntry> findByQueueIdAndStateInOrderByPositionAsc(Integer queueId, List<QueueEntryState> states);

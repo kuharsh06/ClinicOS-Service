@@ -30,6 +30,9 @@ public interface OrgMemberRepository extends JpaRepository<OrgMember, Integer> {
     @Query("SELECT om FROM OrgMember om JOIN FETCH om.user WHERE om.organization.id = :orgId")
     List<OrgMember> findByOrganizationIdWithUser(@Param("orgId") Integer orgId);
 
+    @Query("SELECT om FROM OrgMember om JOIN FETCH om.user WHERE om.organization.id = :orgId AND om.user.uuid = :userUuid")
+    Optional<OrgMember> findByOrgIdAndUserUuid(@Param("orgId") Integer orgId, @Param("userUuid") String userUuid);
+
     @Query("SELECT om FROM OrgMember om JOIN FETCH om.user LEFT JOIN FETCH om.assignedDoctor ad LEFT JOIN FETCH ad.user WHERE om.id = :memberId")
     Optional<OrgMember> findByIdWithAssignedDoctor(@Param("memberId") Integer memberId);
 }
