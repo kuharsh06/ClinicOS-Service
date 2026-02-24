@@ -178,53 +178,50 @@ public class BillingService {
                 .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
 
         int actualLimit = Math.min(limit != null ? limit : 20, 50);
+        ZoneId IST = ZoneId.of("Asia/Kolkata");
 
-        List<Bill> bills;
+        // Parse date range if provided
+        Instant startOfDay = null;
+        Instant endOfDay = null;
         if (date != null) {
-            // Filter by date
             LocalDate filterDate = LocalDate.parse(date);
-            Instant startOfDay = filterDate.atStartOfDay(ZoneId.systemDefault()).toInstant();
-            Instant endOfDay = filterDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
-            bills = billRepository.findByOrgAndDateRange(org.getId(), startOfDay, endOfDay);
+            startOfDay = filterDate.atStartOfDay(IST).toInstant();
+            endOfDay = filterDate.plusDays(1).atStartOfDay(IST).toInstant();
+        }
+
+        // Summary via DB aggregation (no bills loaded into memory)
+        Object[] summary;
+        if (startOfDay != null) {
+            summary = billRepository.getBillSummaryByOrgAndDateRange(org.getId(), startOfDay, endOfDay);
         } else {
-            bills = billRepository.findByOrganizationId(org.getId());
+            summary = billRepository.getBillSummaryByOrg(org.getId());
         }
-
-        // Filter by status
-        if ("paid".equalsIgnoreCase(status)) {
-            bills = bills.stream().filter(Bill::getIsPaid).collect(Collectors.toList());
-        } else if ("unpaid".equalsIgnoreCase(status)) {
-            bills = bills.stream().filter(b -> !b.getIsPaid()).collect(Collectors.toList());
-        }
-
-        // Sort by created date descending
-        bills.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
-
-        // Calculate summary
-        int totalBilled = bills.stream()
-                .mapToInt(b -> b.getTotalAmount().intValue())
-                .sum();
-        int totalPaid = bills.stream()
-                .filter(Bill::getIsPaid)
-                .mapToInt(b -> b.getTotalAmount().intValue())
-                .sum();
+        long billCount = ((Number) summary[0]).longValue();
+        int totalBilled = ((Number) summary[1]).intValue();
+        int totalPaid = ((Number) summary[2]).intValue();
         int totalUnpaid = totalBilled - totalPaid;
 
-        // Apply cursor pagination
-        int startIndex = 0;
-        if (afterCursor != null) {
-            String cursorBillId = decodeCursor(afterCursor);
-            for (int i = 0; i < bills.size(); i++) {
-                if (bills.get(i).getUuid().equals(cursorBillId)) {
-                    startIndex = i + 1;
-                    break;
-                }
-            }
+        // Paginated list query (only loads current page)
+        org.springframework.data.domain.PageRequest page =
+                org.springframework.data.domain.PageRequest.of(0, actualLimit + 1);
+
+        List<Bill> bills;
+        boolean hasPaidFilter = "paid".equalsIgnoreCase(status) || "unpaid".equalsIgnoreCase(status);
+        boolean isPaidFilter = "paid".equalsIgnoreCase(status);
+
+        if (startOfDay != null && hasPaidFilter) {
+            bills = billRepository.findByOrgAndDateRangeAndPaidStatusPaginated(
+                    org.getId(), startOfDay, endOfDay, isPaidFilter, page);
+        } else if (startOfDay != null) {
+            bills = billRepository.findByOrgAndDateRangePaginated(org.getId(), startOfDay, endOfDay, page);
+        } else if (hasPaidFilter) {
+            bills = billRepository.findByOrgIdAndPaidStatusOrderByCreatedDesc(org.getId(), isPaidFilter, page);
+        } else {
+            bills = billRepository.findByOrgIdOrderByCreatedDesc(org.getId(), page);
         }
 
-        int endIndex = Math.min(startIndex + actualLimit, bills.size());
-        List<Bill> pageBills = bills.subList(startIndex, endIndex);
-        boolean hasMore = endIndex < bills.size();
+        boolean hasMore = bills.size() > actualLimit;
+        List<Bill> pageBills = hasMore ? bills.subList(0, actualLimit) : bills;
 
         List<BillResponse> billResponses = pageBills.stream()
                 .map(bill -> {
@@ -243,7 +240,7 @@ public class BillingService {
                         .totalBilled(totalBilled)
                         .totalPaid(totalPaid)
                         .totalUnpaid(totalUnpaid)
-                        .billCount(bills.size())
+                        .billCount((int) billCount)
                         .build())
                 .meta(BillListResponse.Meta.builder()
                         .pagination(PatientListResponse.CursorPagination.builder()
@@ -327,11 +324,19 @@ public class BillingService {
                         .build())
                 .collect(Collectors.toList());
 
+        // Look up queue entry UUID (bill stores Integer FK, API needs UUID)
+        String queueEntryUuid = null;
+        if (bill.getQueueEntryId() != null) {
+            queueEntryUuid = queueEntryRepository.findById(bill.getQueueEntryId())
+                    .map(QueueEntry::getUuid)
+                    .orElse(null);
+        }
+
         return BillResponse.builder()
                 .billId(bill.getUuid())
                 .orgId(bill.getOrganization().getUuid())
                 .patientId(bill.getPatient().getUuid())
-                .queueEntryId(bill.getQueueEntryId() != null ? bill.getQueueEntryId().toString() : null)
+                .queueEntryId(queueEntryUuid)
                 .items(itemDtos)
                 .totalAmount(bill.getTotalAmount().intValue())
                 .isPaid(bill.getIsPaid())
