@@ -1,0 +1,980 @@
+{
+  "info": {
+    "name": "ClinicOS API Collection",
+    "description": "Complete API collection for ClinicOS - Clinic Queue Management System",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orgId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "test-device-001",
+      "type": "string"
+    },
+    {
+      "key": "requestId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "patientId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "queueId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "billId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "doctorId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "1. Send OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('requestId', jsonData.requestId);",
+                  "    console.log('RequestId saved:', jsonData.requestId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543210\",\n  \"countryCode\": \"+91\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/otp/send",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "otp", "send"]
+            }
+          }
+        },
+        {
+          "name": "2. Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', jsonData.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', jsonData.refreshToken);",
+                  "    if (jsonData.user) {",
+                  "        pm.collectionVariables.set('userId', jsonData.user.userId);",
+                  "        if (jsonData.user.orgId) {",
+                  "            pm.collectionVariables.set('orgId', jsonData.user.orgId);",
+                  "        }",
+                  "    }",
+                  "    console.log('Tokens saved!');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"otp\": \"1234\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"deviceInfo\": {\n    \"platform\": \"android\",\n    \"osVersion\": \"14\",\n    \"appVersion\": \"1.0.0\",\n    \"deviceModel\": \"Pixel 8\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/otp/verify",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "otp", "verify"]
+            }
+          }
+        },
+        {
+          "name": "3. Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', jsonData.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', jsonData.refreshToken);",
+                  "    console.log('Tokens refreshed!');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\",\n  \"deviceId\": \"{{deviceId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/token/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "token", "refresh"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Organization",
+      "item": [
+        {
+          "name": "1. Create Organization",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('orgId', jsonData.org.orgId);",
+                  "    pm.collectionVariables.set('accessToken', jsonData.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', jsonData.refreshToken);",
+                  "    console.log('Org created:', jsonData.org.orgId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dr. Kumar's Clinic\",\n  \"address\": \"123 Main Street\",\n  \"city\": \"Patna\",\n  \"state\": \"Bihar\",\n  \"pin\": \"800001\",\n  \"logo\": null,\n  \"brandColor\": \"#2563EB\",\n  \"smsLanguage\": \"hi\",\n  \"clinicalDataVisibility\": \"all_members\",\n  \"workingHours\": {\n    \"monday\": { \"shifts\": [{ \"open\": \"09:00\", \"close\": \"13:00\" }, { \"open\": \"17:00\", \"close\": \"20:00\" }] },\n    \"tuesday\": { \"shifts\": [{ \"open\": \"09:00\", \"close\": \"13:00\" }, { \"open\": \"17:00\", \"close\": \"20:00\" }] },\n    \"wednesday\": { \"shifts\": [{ \"open\": \"09:00\", \"close\": \"13:00\" }, { \"open\": \"17:00\", \"close\": \"20:00\" }] },\n    \"thursday\": { \"shifts\": [{ \"open\": \"09:00\", \"close\": \"13:00\" }, { \"open\": \"17:00\", \"close\": \"20:00\" }] },\n    \"friday\": { \"shifts\": [{ \"open\": \"09:00\", \"close\": \"13:00\" }, { \"open\": \"17:00\", \"close\": \"20:00\" }] },\n    \"saturday\": { \"shifts\": [{ \"open\": \"09:00\", \"close\": \"13:00\" }] },\n    \"sunday\": { \"shifts\": [] }\n  },\n  \"creator\": {\n    \"name\": \"Dr. Rajesh Kumar\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs"]
+            }
+          }
+        },
+        {
+          "name": "2. Get Organization",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}"]
+            }
+          }
+        },
+        {
+          "name": "3. Update Organization",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dr. Kumar's Multi-Specialty Clinic\",\n  \"brandColor\": \"#10B981\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Members",
+      "item": [
+        {
+          "name": "1. Add Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('doctorId', jsonData.member.userId);",
+                  "    console.log('Member added:', jsonData.member.userId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543211\",\n  \"name\": \"Dr. Anita Sharma\",\n  \"roles\": [\"doctor\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "members"]
+            }
+          }
+        },
+        {
+          "name": "2. Add Assistant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543212\",\n  \"name\": \"Ravi Kumar\",\n  \"roles\": [\"assistant\"],\n  \"assignedDoctorId\": \"{{doctorId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "members"]
+            }
+          }
+        },
+        {
+          "name": "3. List Members",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "members"]
+            }
+          }
+        },
+        {
+          "name": "4. Update Member",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dr. Anita Sharma (Senior)\",\n  \"roles\": [\"doctor\", \"admin\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/members/{{doctorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "members", "{{doctorId}}"]
+            }
+          }
+        },
+        {
+          "name": "5. Update Member Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileData\": {\n    \"specialization\": \"General Physician\",\n    \"registrationNumber\": \"MCI-12345-BH\",\n    \"experience\": 10,\n    \"consultationFee\": 300,\n    \"qualifications\": [\"MBBS\", \"MD\"],\n    \"languages\": [\"Hindi\", \"English\"]\n  },\n  \"profileSchemaVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/members/{{doctorId}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "members", "{{doctorId}}", "profile"]
+            }
+          }
+        },
+        {
+          "name": "6. Get Doctors List",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/doctors",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "doctors"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sync",
+      "item": [
+        {
+          "name": "1. Push Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"evt-001-test\",\n      \"deviceId\": \"{{deviceId}}\",\n      \"eventType\": \"patient_added\",\n      \"targetEntity\": \"patient-001\",\n      \"targetTable\": \"queue_entry\",\n      \"payload\": {\n        \"phone\": \"9876543213\",\n        \"name\": \"Test Patient\",\n        \"age\": 35,\n        \"gender\": \"M\",\n        \"complaintTags\": [\"fever\", \"headache\"],\n        \"tokenNumber\": 1\n      },\n      \"deviceTimestamp\": 1708500000000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/sync/push",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "sync", "push"]
+            }
+          }
+        },
+        {
+          "name": "2. Pull Events",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/sync/pull?since=0&limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "sync", "pull"],
+              "query": [
+                {
+                  "key": "since",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Queue",
+      "item": [
+        {
+          "name": "1. Get Active Queue",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.queue) {",
+                  "        pm.collectionVariables.set('queueId', jsonData.queue.queueId);",
+                  "        console.log('QueueId saved:', jsonData.queue.queueId);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/queues/active?doctorId={{doctorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "queues", "active"],
+              "query": [
+                {
+                  "key": "doctorId",
+                  "value": "{{doctorId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. Lookup Patient by Phone",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.found && jsonData.patient) {",
+                  "        pm.collectionVariables.set('patientId', jsonData.patient.patientId);",
+                  "        console.log('PatientId saved:', jsonData.patient.patientId);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/patients/lookup?phone=9876543213",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "patients", "lookup"],
+              "query": [
+                {
+                  "key": "phone",
+                  "value": "9876543213"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Get Complaint Tags",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/complaint-tags",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "complaint-tags"]
+            }
+          }
+        },
+        {
+          "name": "4. End Queue",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stashRemaining\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/queues/{{queueId}}/end",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "queues", "{{queueId}}", "end"]
+            }
+          }
+        },
+        {
+          "name": "5. Import Stash",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceQueueId\": \"{{queueId}}\",\n  \"entryIds\": null\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/queues/{{queueId}}/import-stash",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "queues", "{{queueId}}", "import-stash"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patients",
+      "item": [
+        {
+          "name": "1. List Patients",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.patients && jsonData.patients.length > 0) {",
+                  "        pm.collectionVariables.set('patientId', jsonData.patients[0].patientId);",
+                  "        console.log('PatientId saved:', jsonData.patients[0].patientId);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/patients?limit=20&sort=last_visit_desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "patients"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "last_visit_desc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. Search Patients",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/patients/search?q=kumar&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "patients", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "kumar"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Get Patient Thread",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/patients/{{patientId}}/thread?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "patients", "{{patientId}}", "thread"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4. Create Visit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"queueEntryId\": null,\n  \"complaintTags\": [\"fever\", \"body_pain\"],\n  \"data\": {\n    \"complaint\": \"Fever for 3 days, body ache\",\n    \"vitals\": {\n      \"bp\": \"120/80\",\n      \"pulse\": 82,\n      \"temperature\": 101.5,\n      \"weight\": 70\n    },\n    \"diagnosis\": \"Viral fever\",\n    \"prescriptions\": [\n      {\n        \"medicineName\": \"Paracetamol 500mg\",\n        \"dosage\": \"1 tablet\",\n        \"frequency\": \"TDS\",\n        \"timing\": \"after food\",\n        \"duration\": \"3 days\"\n      }\n    ],\n    \"notes\": \"Rest and plenty of fluids recommended\"\n  },\n  \"schemaVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/patients/{{patientId}}/visits",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "patients", "{{patientId}}", "visits"]
+            }
+          }
+        },
+        {
+          "name": "5. Update Visit",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"complaintTags\": [\"fever\", \"body_pain\", \"headache\"],\n  \"data\": {\n    \"complaint\": \"Fever for 3 days, body ache, headache\",\n    \"notes\": \"Updated: Follow up after 3 days if fever persists\"\n  },\n  \"schemaVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/patients/{{patientId}}/visits/{{visitId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "patients", "{{patientId}}", "visits", "{{visitId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Billing",
+      "item": [
+        {
+          "name": "1. Get Bill Templates",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/bill-templates",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "bill-templates"]
+            }
+          }
+        },
+        {
+          "name": "2. Create Bill Template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Consultation Fee\",\n  \"defaultAmount\": 300,\n  \"isDefault\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/bill-templates",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "bill-templates"]
+            }
+          }
+        },
+        {
+          "name": "3. Create Bill",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('billId', jsonData.billId);",
+                  "    console.log('BillId saved:', jsonData.billId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"patientId\": \"{{patientId}}\",\n  \"queueEntryId\": \"entry-001\",\n  \"items\": [\n    {\n      \"name\": \"Consultation Fee\",\n      \"amount\": 300\n    },\n    {\n      \"name\": \"ECG\",\n      \"amount\": 200\n    }\n  ],\n  \"sendSMS\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/bills",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "bills"]
+            }
+          }
+        },
+        {
+          "name": "4. Get Bill",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/bills/{{billId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "bills", "{{billId}}"]
+            }
+          }
+        },
+        {
+          "name": "5. List Bills",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/bills?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "bills"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "6. List Bills by Date",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/bills?date=2026-02-21&status=all",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "bills"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-02-21"
+                },
+                {
+                  "key": "status",
+                  "value": "all"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "7. Mark Bill Paid",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/bills/{{billId}}/mark-paid",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "bills", "{{billId}}", "mark-paid"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "1. Get Analytics - Today",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/analytics?period=today",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "analytics"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "today"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. Get Analytics - Week",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/analytics?period=week",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "analytics"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "week"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Get Analytics - Month",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/analytics?period=month",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "analytics"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "month"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4. Get Analytics by Doctor",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/analytics?period=today&doctorId={{doctorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "analytics"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "today"
+                },
+                {
+                  "key": "doctorId",
+                  "value": "{{doctorId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SMS",
+      "item": [
+        {
+          "name": "1. Get SMS Templates",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/sms/templates",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "sms", "templates"]
+            }
+          }
+        },
+        {
+          "name": "2. Get Queue SMS Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/queues/{{queueId}}/sms-status",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "queues", "{{queueId}}", "sms-status"]
+            }
+          }
+        },
+        {
+          "name": "3. Send Manual SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entryId\": \"entry-001\",\n  \"templateType\": \"registration\",\n  \"customMessage\": null\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orgs/{{orgId}}/sms/send",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "orgs", "{{orgId}}", "sms", "send"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Actuator Health",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
