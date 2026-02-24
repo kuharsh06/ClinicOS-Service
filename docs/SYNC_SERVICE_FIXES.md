@@ -130,3 +130,37 @@ Default (null) and cap (>500) are merged into one condition. Passing `limit=501`
 if (limit == null) limit = 100;
 if (limit > 500) limit = 500;
 ```
+
+---
+
+### M3. No optimistic locking — concurrent writes silently overwrite
+
+**Severity:** Medium (low risk due to single-writer design, but no safety net)
+**File:** `BaseEntity.java`
+
+**Problem:** No `@Version` field on any entity. If two sync requests modify the same entity concurrently, last write wins silently — no conflict detection.
+
+**Example race condition:**
+```
+Device A reads entry #42 (state=WAITING)
+              Device B reads entry #42 (state=WAITING)
+Device A: call_now → state=CALLED, saves ✓
+              Device B: patient_removed → state=REMOVED, saves ✓
+              → Device A's call_now is silently lost
+```
+
+Both pass the state guard (WAITING→CALLED and WAITING→REMOVED are both valid), but the second write overwrites the first without knowing it happened.
+
+**Why it's medium, not critical:** The v3.2 `assignedDoctorId` pattern means one assistant manages one doctor's queue — multi-device conflicts on the same entry are rare by design. The state guards from Issue #2 already prevent the most dangerous invalid transitions. This would catch the narrow race condition where two saves happen within milliseconds.
+
+**Fix:** Add `@Version` to `BaseEntity.java`:
+
+```java
+// BaseEntity.java — add this field:
+@Version
+private Long version;
+```
+
+This single field protects every entity. When two transactions read version 1, the first save bumps to version 2. The second save sees a version mismatch and throws `OptimisticLockException`, which would be caught by the inner try/catch and mark the event as REJECTED.
+
+**Note:** Requires adding `version BIGINT` column to all 23 tables, or setting `spring.jpa.hibernate.ddl-auto=update` to auto-add it. Also needs a handler for `OptimisticLockException` in the `GlobalExceptionHandler` if it can surface outside of sync context.
