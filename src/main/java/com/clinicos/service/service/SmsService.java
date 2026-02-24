@@ -74,13 +74,20 @@ public class SmsService {
 
         List<QueueEntry> entries = queueEntryRepository.findByQueueIdOrderByPositionAsc(queue.getId());
 
+        // Batch-load all SMS logs for all entries in one query (avoids N+1)
+        List<Integer> entryIds = entries.stream().map(QueueEntry::getId).collect(Collectors.toList());
+        List<SmsLog> allLogs = entryIds.isEmpty()
+                ? List.of()
+                : smsLogRepository.findByQueueEntryIdIn(entryIds);
+
+        // Group logs by entry ID for O(1) lookup
+        Map<Integer, List<SmsLog>> logsByEntryId = allLogs.stream()
+                .filter(log -> log.getQueueEntry() != null)
+                .collect(Collectors.groupingBy(log -> log.getQueueEntry().getId()));
+
         Map<String, QueueSmsStatusResponse.EntrySmsStatus> statuses = new HashMap<>();
         for (QueueEntry entry : entries) {
-            // Get SMS logs for this entry
-            List<SmsLog> entryLogs = smsLogRepository.findByOrganizationIdOrderByCreatedAtDesc(org.getId())
-                    .stream()
-                    .filter(log -> log.getQueueEntry() != null && log.getQueueEntry().getId().equals(entry.getId()))
-                    .collect(Collectors.toList());
+            List<SmsLog> entryLogs = logsByEntryId.getOrDefault(entry.getId(), List.of());
 
             String registrationStatus = "queued";
             String turnNearStatus = null;
@@ -203,8 +210,8 @@ public class SmsService {
     private String processTemplate(String template, QueueEntry entry) {
         return template
                 .replace("{{token}}", String.valueOf(entry.getTokenNumber()))
-                .replace("{{patient_name}}", entry.getPatient().getName())
-                .replace("{{clinic}}", entry.getQueue().getOrganization().getName())
+                .replace("{{patient_name}}", Objects.toString(entry.getPatient().getName(), "Patient"))
+                .replace("{{clinic}}", Objects.toString(entry.getQueue().getOrganization().getName(), "Clinic"))
                 .replace("{{position}}", String.valueOf(entry.getPosition() != null ? entry.getPosition() : 0));
     }
 }

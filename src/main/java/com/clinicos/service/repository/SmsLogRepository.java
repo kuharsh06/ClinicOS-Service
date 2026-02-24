@@ -18,6 +18,8 @@ public interface SmsLogRepository extends JpaRepository<SmsLog, Integer> {
 
     List<SmsLog> findByOrganizationIdOrderByCreatedAtDesc(Integer orgId);
 
+    List<SmsLog> findByQueueEntryIdIn(List<Integer> queueEntryIds);
+
     List<SmsLog> findByStatus(SmsStatus status);
 
     List<SmsLog> findByOrganizationIdAndCreatedAtBetweenOrderByCreatedAtDesc(
