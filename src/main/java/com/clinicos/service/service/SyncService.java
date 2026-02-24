@@ -43,6 +43,16 @@ public class SyncService {
     private final PatientRepository patientRepository;
     private final ObjectMapper objectMapper;
 
+    // Valid state transitions: current state → allowed next states
+    private static final Map<QueueEntryState, Set<QueueEntryState>> VALID_TRANSITIONS = Map.of(
+            QueueEntryState.WAITING, Set.of(QueueEntryState.CALLED, QueueEntryState.REMOVED, QueueEntryState.STASHED, QueueEntryState.STEPPED_OUT),
+            QueueEntryState.CALLED, Set.of(QueueEntryState.COMPLETED, QueueEntryState.REMOVED, QueueEntryState.STEPPED_OUT),
+            QueueEntryState.STEPPED_OUT, Set.of(QueueEntryState.WAITING, QueueEntryState.REMOVED),
+            QueueEntryState.STASHED, Set.of(QueueEntryState.WAITING),
+            QueueEntryState.COMPLETED, Set.of(),
+            QueueEntryState.REMOVED, Set.of()
+    );
+
     // Event type to allowed roles mapping
     private static final Map<String, List<String>> EVENT_ALLOWED_ROLES = Map.ofEntries(
             Map.entry("patient_added", List.of("assistant")),
@@ -390,6 +400,21 @@ public class SyncService {
     }
 
     /**
+     * Validates that a queue entry state transition is allowed.
+     * Throws RuntimeException if the transition is invalid — caught by the
+     * inner try/catch in pushEvents() which marks the event as REJECTED.
+     */
+    private void guardStateTransition(QueueEntry entry, QueueEntryState targetState) {
+        QueueEntryState currentState = entry.getState();
+        Set<QueueEntryState> allowed = VALID_TRANSITIONS.getOrDefault(currentState, Set.of());
+        if (!allowed.contains(targetState)) {
+            throw new RuntimeException(
+                    "Invalid state transition: " + currentState + " → " + targetState
+                            + " for entry " + entry.getUuid());
+        }
+    }
+
+    /**
      * Process patient_removed event.
      */
     private void processPatientRemoved(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
@@ -399,6 +424,7 @@ public class SyncService {
         QueueEntry entry = queueEntryRepository.findByUuid(entryId)
                 .orElseThrow(() -> new RuntimeException("Queue entry not found: " + entryId));
 
+        guardStateTransition(entry, QueueEntryState.REMOVED);
         entry.setState(QueueEntryState.REMOVED);
         entry.setRemovalReason(reason != null ? reason : "removed");
         queueEntryRepository.save(entry);
@@ -415,6 +441,7 @@ public class SyncService {
         QueueEntry entry = queueEntryRepository.findByUuid(entryId)
                 .orElseThrow(() -> new RuntimeException("Queue entry not found: " + entryId));
 
+        guardStateTransition(entry, QueueEntryState.CALLED);
         entry.setState(QueueEntryState.CALLED);
         entry.setCalledAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
         queueEntryRepository.save(entry);
@@ -432,6 +459,7 @@ public class SyncService {
         QueueEntry entry = queueEntryRepository.findByUuid(entryId)
                 .orElseThrow(() -> new RuntimeException("Queue entry not found: " + entryId));
 
+        guardStateTransition(entry, QueueEntryState.STEPPED_OUT);
         entry.setState(QueueEntryState.STEPPED_OUT);
         entry.setStepOutReason(reason);
         entry.setSteppedOutAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
@@ -449,6 +477,7 @@ public class SyncService {
         QueueEntry entry = queueEntryRepository.findByUuid(entryId)
                 .orElseThrow(() -> new RuntimeException("Queue entry not found: " + entryId));
 
+        guardStateTransition(entry, QueueEntryState.COMPLETED);
         entry.setState(QueueEntryState.COMPLETED);
         entry.setCompletedAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
         queueEntryRepository.save(entry);
