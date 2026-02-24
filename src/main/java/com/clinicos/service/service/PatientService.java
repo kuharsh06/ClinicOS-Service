@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDate;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,22 +49,24 @@ public class PatientService {
                 .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
 
         int actualLimit = Math.min(limit != null ? limit : DEFAULT_LIMIT, MAX_LIMIT);
-        // Fetch one extra to check hasMore
         PageRequest page = PageRequest.of(0, actualLimit + 1);
+        String sortKey = sort != null ? sort : "last_visit_desc";
 
         List<Patient> patients;
         if (search != null && search.length() >= 2) {
-            // Search by name OR phone in a single DB query
+            // Search by name OR phone in a single DB query (no cursor for search — always page 1)
             patients = patientRepository.searchByNameOrPhone(org.getId(), search, page);
+        } else if (afterCursor != null) {
+            // Keyset cursor pagination — decode cursor and use WHERE clause
+            Patient cursorPatient = decodeCursorToPatient(afterCursor);
+            if (cursorPatient != null) {
+                patients = fetchPatientsAfterCursor(org.getId(), sortKey, cursorPatient, page);
+            } else {
+                patients = fetchPatientsFirstPage(org.getId(), sortKey, page);
+            }
         } else {
-            // Sorted paginated query at DB level
-            String sortKey = sort != null ? sort : "last_visit_desc";
-            patients = switch (sortKey) {
-                case "name_asc" -> patientRepository.findByOrgIdOrderByNameAsc(org.getId(), page);
-                case "created_desc" -> patientRepository.findByOrgIdOrderByCreatedDesc(org.getId(), page);
-                case "visits_desc" -> patientRepository.findByOrgIdOrderByVisitsDesc(org.getId(), page);
-                default -> patientRepository.findByOrgIdOrderByLastVisitDesc(org.getId(), page);
-            };
+            // First page — no cursor
+            patients = fetchPatientsFirstPage(org.getId(), sortKey, page);
         }
 
         boolean hasMore = patients.size() > actualLimit;
@@ -74,7 +77,7 @@ public class PatientService {
                 .collect(Collectors.toList());
 
         String nextCursor = hasMore && !pagePatients.isEmpty()
-                ? encodeCursor(pagePatients.get(pagePatients.size() - 1).getUuid())
+                ? encodePatientCursor(pagePatients.get(pagePatients.size() - 1), sortKey)
                 : null;
 
         return PatientListResponse.builder()
@@ -109,10 +112,21 @@ public class PatientService {
 
         // Check if user has permission to view full clinical data
         boolean canViewFull = canViewFullClinicalData(org);
+        PageRequest page = PageRequest.of(0, actualLimit + 1);
 
-        // DB-level pagination with JOIN FETCH to avoid N+1 (fetches createdBy, user, queueEntry)
-        List<Visit> visits = visitRepository.findByPatientIdWithDetailsOrderByDateDesc(
-                patient.getId(), PageRequest.of(0, actualLimit + 1));
+        // DB-level keyset pagination with JOIN FETCH to avoid N+1
+        List<Visit> visits;
+        if (afterCursor != null) {
+            Visit cursorVisit = decodeCursorToVisit(afterCursor);
+            if (cursorVisit != null) {
+                visits = visitRepository.findByPatientIdWithDetailsAfterCursor(
+                        patient.getId(), cursorVisit.getVisitDate(), cursorVisit.getId(), page);
+            } else {
+                visits = visitRepository.findByPatientIdWithDetailsOrderByDateDesc(patient.getId(), page);
+            }
+        } else {
+            visits = visitRepository.findByPatientIdWithDetailsOrderByDateDesc(patient.getId(), page);
+        }
 
         boolean hasMore = visits.size() > actualLimit;
         List<Visit> pageVisits = hasMore ? visits.subList(0, actualLimit) : visits;
@@ -122,7 +136,7 @@ public class PatientService {
                 .collect(Collectors.toList());
 
         String nextCursor = hasMore && !pageVisits.isEmpty()
-                ? encodeCursor(pageVisits.get(pageVisits.size() - 1).getUuid())
+                ? encodeVisitCursor(pageVisits.get(pageVisits.size() - 1))
                 : null;
 
         return PatientThreadResponse.builder()
@@ -331,8 +345,95 @@ public class PatientService {
         }
     }
 
-    private String encodeCursor(String id) {
-        return java.util.Base64.getEncoder().encodeToString(id.getBytes());
+    // --- Keyset cursor pagination helpers ---
+
+    private List<Patient> fetchPatientsFirstPage(Integer orgId, String sortKey, PageRequest page) {
+        return switch (sortKey) {
+            case "name_asc" -> patientRepository.findByOrgIdOrderByNameAsc(orgId, page);
+            case "created_desc" -> patientRepository.findByOrgIdOrderByCreatedDesc(orgId, page);
+            case "visits_desc" -> patientRepository.findByOrgIdOrderByVisitsDesc(orgId, page);
+            default -> patientRepository.findByOrgIdOrderByLastVisitDesc(orgId, page);
+        };
+    }
+
+    private List<Patient> fetchPatientsAfterCursor(Integer orgId, String sortKey, Patient cursor, PageRequest page) {
+        return switch (sortKey) {
+            case "name_asc" -> patientRepository.findByOrgIdOrderByNameAscAfterCursor(
+                    orgId, cursor.getName(), cursor.getId(), page);
+            case "created_desc" -> patientRepository.findByOrgIdOrderByCreatedDescAfterCursor(
+                    orgId, cursor.getCreatedAt(), cursor.getId(), page);
+            case "visits_desc" -> patientRepository.findByOrgIdOrderByVisitsDescAfterCursor(
+                    orgId, cursor.getTotalVisits(), cursor.getId(), page);
+            default -> {
+                if (cursor.getLastVisitDate() != null) {
+                    yield patientRepository.findByOrgIdOrderByLastVisitDescAfterCursor(
+                            orgId, cursor.getLastVisitDate(), cursor.getId(), page);
+                } else {
+                    // Cursor patient has null lastVisitDate — only get others with null date after this id
+                    yield patientRepository.findByOrgIdOrderByLastVisitDescAfterCursorNull(
+                            orgId, cursor.getId(), page);
+                }
+            }
+        };
+    }
+
+    /**
+     * Encode cursor as Base64 of "sortValue|id" for patient list pagination.
+     * The cursor captures the sort value + internal ID of the last item.
+     */
+    private String encodePatientCursor(Patient patient, String sortKey) {
+        String value = switch (sortKey) {
+            case "name_asc" -> patient.getName() + "|" + patient.getId();
+            case "created_desc" -> patient.getCreatedAt().toString() + "|" + patient.getId();
+            case "visits_desc" -> patient.getTotalVisits() + "|" + patient.getId();
+            default -> (patient.getLastVisitDate() != null ? patient.getLastVisitDate().toString() : "null")
+                    + "|" + patient.getId();
+        };
+        return Base64.getEncoder().encodeToString(value.getBytes());
+    }
+
+    /**
+     * Decode cursor back to Patient entity (only the fields needed for the WHERE clause).
+     * Returns null if cursor is invalid.
+     */
+    private Patient decodeCursorToPatient(String cursor) {
+        try {
+            String decoded = new String(Base64.getDecoder().decode(cursor));
+            String[] parts = decoded.split("\\|", 2);
+            if (parts.length != 2) return null;
+
+            Integer id = Integer.parseInt(parts[1]);
+            return patientRepository.findById(id).orElse(null);
+        } catch (Exception e) {
+            log.warn("Invalid patient cursor: {}", cursor);
+            return null;
+        }
+    }
+
+    /**
+     * Encode visit cursor as Base64 of "visitDate|id".
+     */
+    private String encodeVisitCursor(Visit visit) {
+        String value = visit.getVisitDate().toString() + "|" + visit.getId();
+        return Base64.getEncoder().encodeToString(value.getBytes());
+    }
+
+    /**
+     * Decode visit cursor. Returns a Visit with just the fields needed for the WHERE clause.
+     * Returns null if cursor is invalid.
+     */
+    private Visit decodeCursorToVisit(String cursor) {
+        try {
+            String decoded = new String(Base64.getDecoder().decode(cursor));
+            String[] parts = decoded.split("\\|", 2);
+            if (parts.length != 2) return null;
+
+            Integer id = Integer.parseInt(parts[1]);
+            return visitRepository.findById(id).orElse(null);
+        } catch (Exception e) {
+            log.warn("Invalid visit cursor: {}", cursor);
+            return null;
+        }
     }
 
     private String toJson(Object obj) {

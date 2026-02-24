@@ -31,7 +31,60 @@ findByOrgIdOrderByVisitsDesc(orgId, Pageable)
 
 **Impact:** From `O(n)` memory + `O(n log n)` sort per request → constant `O(limit)` memory, DB handles sorting and pagination.
 
-Removed dead code: `sortPatients()` method (sorting now done by DB), `decodeCursor()` method (cursor consumed by offset pagination).
+Removed dead code: `sortPatients()` method (sorting now done by DB).
+
+---
+
+## 1b. Keyset cursor pagination (True cursor — no offset)
+
+**Files:** `PatientService.java:58-80, 334-423`, `PatientRepository.java:44-78`, `VisitRepository.java:26-33`
+
+**Problem:** Initial DB pagination fix used `PageRequest.of(0, limit+1)` for every request. The cursor was returned in the response but never consumed — page 2+ always returned the same data as page 1.
+
+**Fix:** Implemented proper keyset cursor pagination:
+
+**How it works:**
+1. **Cursor encodes:** `sortValue|internalId` as Base64. Example: `"2026-02-20|42"` → `"MjAyNi0wMi0yMHw0Mg=="`
+2. **Cursor decodes:** Parse Base64 → split by `|` → look up entity by ID from DB
+3. **WHERE clause:** Uses the cursor entity's sort value + ID as keyset: `WHERE (sortCol < :cursorValue OR (sortCol = :cursorValue AND id < :cursorId))`
+
+**Per sort option — 4 first-page queries + 5 cursor queries added to `PatientRepository`:**
+
+| Sort | First page ORDER BY | Cursor WHERE clause |
+|------|-------------------|-------------------|
+| `last_visit_desc` | `last_visit_date DESC NULLS LAST, id DESC` | `date < cursor OR (date = cursor AND id < cursorId) OR date IS NULL` |
+| `last_visit_desc` (null cursor) | same | `date IS NULL AND id < cursorId` |
+| `name_asc` | `name ASC, id ASC` | `name > cursor OR (name = cursor AND id > cursorId)` |
+| `created_desc` | `created_at DESC, id DESC` | `created_at < cursor OR (= AND id < cursorId)` |
+| `visits_desc` | `total_visits DESC, id DESC` | `total_visits < cursor OR (= AND id < cursorId)` |
+
+**Visit thread** also uses keyset cursor: `visitDate|id` with cursor query in `VisitRepository`.
+
+**Helper methods added to `PatientService`:**
+- `fetchPatientsFirstPage(orgId, sortKey, page)` — picks first-page query by sort
+- `fetchPatientsAfterCursor(orgId, sortKey, cursor, page)` — picks cursor query by sort
+- `encodePatientCursor(patient, sortKey)` / `decodeCursorToPatient(cursor)` — cursor encode/decode
+- `encodeVisitCursor(visit)` / `decodeCursorToVisit(cursor)` — visit cursor encode/decode
+
+**Rollback:** If keyset pagination causes issues, revert `PatientService.java`, `PatientRepository.java`, and `VisitRepository.java` to commit `f044bd1`. The offset-based first-page-only behavior is safe as a fallback.
+
+---
+
+## 1c. Doctor allowed all assistant sync events (SyncService)
+
+**File:** `SyncService.java:57-71`
+
+**Problem:** `EVENT_ALLOWED_ROLES` only allowed `assistant` for queue operations (`patient_added`, `call_now`, etc.). In single-doctor clinics, the doctor acts as their own assistant. Sync push from a doctor-only user was rejected with `UNAUTHORIZED_ROLE`.
+
+**Fix:** Added `"doctor"` to all event types that previously only allowed `"assistant"`:
+```
+patient_added, patient_removed, call_now, step_out, queue_paused,
+queue_resumed, queue_ended, stash_imported → now allow both assistant AND doctor
+```
+
+`mark_complete`, `bill_created`, `bill_updated` already had both. `visit_saved` stays doctor-only.
+
+**Rollback:** Revert lines 57-71 in `SyncService.java` to restore assistant-only restrictions.
 
 ---
 

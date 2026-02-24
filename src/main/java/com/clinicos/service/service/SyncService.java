@@ -54,16 +54,17 @@ public class SyncService {
     );
 
     // Event type to allowed roles mapping
+    // Doctor can perform all operations that assistant can (single-doctor clinic scenario)
     private static final Map<String, List<String>> EVENT_ALLOWED_ROLES = Map.ofEntries(
-            Map.entry("patient_added", List.of("assistant")),
-            Map.entry("patient_removed", List.of("assistant")),
-            Map.entry("call_now", List.of("assistant")),
-            Map.entry("step_out", List.of("assistant")),
+            Map.entry("patient_added", List.of("assistant", "doctor")),
+            Map.entry("patient_removed", List.of("assistant", "doctor")),
+            Map.entry("call_now", List.of("assistant", "doctor")),
+            Map.entry("step_out", List.of("assistant", "doctor")),
             Map.entry("mark_complete", List.of("assistant", "doctor")),
-            Map.entry("queue_paused", List.of("assistant")),
-            Map.entry("queue_resumed", List.of("assistant")),
-            Map.entry("queue_ended", List.of("assistant")),
-            Map.entry("stash_imported", List.of("assistant")),
+            Map.entry("queue_paused", List.of("assistant", "doctor")),
+            Map.entry("queue_resumed", List.of("assistant", "doctor")),
+            Map.entry("queue_ended", List.of("assistant", "doctor")),
+            Map.entry("stash_imported", List.of("assistant", "doctor")),
             Map.entry("visit_saved", List.of("doctor")),
             Map.entry("bill_created", List.of("assistant", "doctor")),
             Map.entry("bill_updated", List.of("assistant", "doctor"))
