@@ -202,3 +202,99 @@ private Long version;
 This single field protects every entity. When two transactions read version 1, the first save bumps to version 2. The second save sees a version mismatch and throws `OptimisticLockException`, which would be caught by the inner try/catch and mark the event as REJECTED.
 
 **Note:** Requires adding `version BIGINT` column to all 23 tables, or setting `spring.jpa.hibernate.ddl-auto=update` to auto-add it. Also needs a handler for `OptimisticLockException` in the `GlobalExceptionHandler` if it can surface outside of sync context.
+
+---
+
+## Code Quality Concerns for Sync Engine
+
+> These are minor items that won't cause data corruption or incorrect behavior, but are worth addressing for robustness and maintainability.
+
+### Q1. `Gender.valueOf()` is fragile
+
+**Severity:** Low
+**Line:** `SyncService.java:344`
+
+```java
+.gender(gender != null ? Gender.valueOf(gender.toUpperCase()) : null)
+```
+
+Uses `Gender.valueOf()` (matches Java enum constant name) instead of `Gender.fromValue()` (matches the string value). If someone sends an unexpected gender string like `"non-binary"`, it throws `IllegalArgumentException` with a confusing message instead of a clean validation error. The inner try/catch handles it gracefully (event is REJECTED), but the error reason is unhelpful.
+
+**Fix:**
+```java
+.gender(gender != null ? Gender.fromValue(gender) : null)
+```
+
+---
+
+### Q2. Doctor lookup iterates all org members in Java
+
+**Severity:** Low (performance)
+**Lines:** `SyncService.java:357-361`, `SyncService.java:584-588`
+
+```java
+OrgMember doctor = orgMemberRepository.findByOrganizationIdWithUser(org.getId())
+        .stream()
+        .filter(m -> m.getUser().getUuid().equals(doctorId))
+        .findFirst()
+        .orElseThrow(...);
+```
+
+Loads **all** org members with a JOIN FETCH, then filters in Java. For a clinic with 50 members, this fetches 50 rows to find 1. Not a problem for small clinics, but inefficient.
+
+**Fix:** Add a direct repository query:
+```java
+// OrgMemberRepository.java:
+Optional<OrgMember> findByOrganization_IdAndUser_Uuid(Integer orgId, String userUuid);
+```
+
+---
+
+### Q3. Queue `startedAt` uses `Instant.now()` instead of deviceTimestamp
+
+**Severity:** Low
+**Lines:** `SyncService.java:370`, `SyncService.java:599`
+
+```java
+.startedAt(Instant.now())
+```
+
+When a queue is auto-created (first `patient_added` or `stash_imported`), `startedAt` uses server time. In theory, if the device was offline when the first patient was added, the queue start time would be the sync time, not the actual start time.
+
+Less impactful than the other timestamp issues because queue creation usually happens in real-time (the first patient_added triggers it, and that event is typically pushed immediately). But for consistency with the offline-first design, it should derive from `event.getDeviceTimestamp()`.
+
+**Fix:**
+```java
+long startedMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+.startedAt(Instant.ofEpochMilli(startedMs))
+```
+
+---
+
+### Q4. Three event handlers are TODO stubs
+
+**Severity:** Acknowledged — incomplete features, not bugs
+**Lines:** `SyncService.java:289-299`
+
+```java
+case "visit_saved":
+    log.debug("Processing visit_saved for {}", event.getTargetEntity());
+    // TODO: Implement visit processing
+    break;
+case "bill_created":
+    log.debug("Processing bill_created for {}", event.getTargetEntity());
+    // TODO: Implement bill processing
+    break;
+case "bill_updated":
+    log.debug("Processing bill_updated for {}", event.getTargetEntity());
+    // TODO: Implement bill update processing
+    break;
+```
+
+These event types are accepted by the role check (`EVENT_ALLOWED_ROLES` includes them), stored in `event_store` as APPLIED, and returned to other devices on pull. But the domain tables (`visits`, `bills`, `bill_items`) are **never updated**. The events exist in the event log but have no side effects.
+
+Currently, visits and bills are only created through their direct REST endpoints (`PatientController`, `BillingController`), not through the sync protocol. This means:
+- Visits/bills created offline are not synced to the server via events
+- Other devices don't receive visit/bill changes through pull
+
+**When these are implemented**, they should follow the same patterns established in the other handlers: deviceTimestamp for dates, guardStateTransition where applicable, proper entity creation with UUID from targetEntity.
