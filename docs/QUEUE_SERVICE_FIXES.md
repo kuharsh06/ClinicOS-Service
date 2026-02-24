@@ -148,6 +148,51 @@ Optional<Queue> findMostRecentEndedQueue(Integer doctorId);
 
 ---
 
+## 7. Cross-org validation on source queue in importStash (security fix)
+
+**Severity:** High (multi-tenant security — cross-tenant data leak)
+**File:** `QueueService.java:179-181`
+
+**Problem:** `importStash()` validated the target queue belongs to the org, but NOT the source queue. A user could pass a source queue UUID from a different organization, importing stashed patients from another clinic into theirs.
+
+**Fix:** Added org ownership check on source queue:
+```java
+if (!sourceQueue.getOrganization().getId().equals(org.getId())) {
+    throw new BusinessException("INVALID_SOURCE_QUEUE", "Source queue does not belong to this organization", false);
+}
+```
+
+---
+
+## 8. Queue status and entry state use getValue() for API consistency
+
+**Severity:** Low (API consistency)
+**File:** `QueueService.java:289, 308`
+
+**Problem:** `queue.getStatus().name().toLowerCase()` and `entry.getState().name().toLowerCase()` returned Java enum names lowercased. Both enums have `getValue()` methods that return the proper lowercase string value directly. Inconsistent with the Gender fix (issue #6).
+
+**Fix:** Replaced `.name().toLowerCase()` with `.getValue()`:
+- `buildQueueSnapshot()` — `queue.getStatus().getValue()`
+- `buildQueueEntryFull()` — `entry.getState().getValue()`
+
+---
+
+## Remaining Items (Documented, Not Fixed)
+
+### R1. Loads all entries to calculate max position in importStash
+
+**Severity:** Low (performance)
+**Line:** `QueueService.java:198-202`
+
+```java
+List<QueueEntry> currentEntries = queueEntryRepository.findByQueueIdOrderByPositionAsc(targetQueue.getId());
+int nextPosition = currentEntries.stream().mapToInt(...).max().orElse(0) + 1;
+```
+
+Loads all entries in the target queue into memory just to get `max(position)`. Should be a `SELECT MAX(position)` query.
+
+---
+
 ## Performance Impact Summary
 
 | Operation | Queries Before | Queries After |

@@ -176,6 +176,10 @@ public class QueueService {
         Queue sourceQueue = queueRepository.findByUuid(request.getSourceQueueId())
                 .orElseThrow(() -> new ResourceNotFoundException("Source Queue", request.getSourceQueueId()));
 
+        if (!sourceQueue.getOrganization().getId().equals(org.getId())) {
+            throw new BusinessException("INVALID_SOURCE_QUEUE", "Source queue does not belong to this organization", false);
+        }
+
         if (sourceQueue.getStatus() != QueueStatus.ENDED) {
             throw new BusinessException("INVALID_SOURCE_QUEUE", "Can only import stash from an ended queue", false);
         }
@@ -282,7 +286,7 @@ public class QueueService {
                 .queueId(queue.getUuid())
                 .orgId(queue.getOrganization().getUuid())
                 .doctorId(queue.getDoctor().getUser().getUuid())
-                .status(queue.getStatus().name().toLowerCase())
+                .status(queue.getStatus().getValue())
                 .lastToken(queue.getLastToken())
                 .pauseStartTime(queue.getPauseStartTime())
                 .totalPausedMs(queue.getTotalPausedMs())
@@ -301,7 +305,7 @@ public class QueueService {
                 .queueId(entry.getQueue().getUuid())
                 .patientId(patient.getUuid())
                 .tokenNumber(entry.getTokenNumber())
-                .state(entry.getState().name().toLowerCase())
+                .state(entry.getState().getValue())
                 .position(entry.getPosition())
                 .complaintTags(parseJsonArray(entry.getComplaintTags()))
                 .complaintText(entry.getComplaintText())
