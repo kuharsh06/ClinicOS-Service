@@ -58,6 +58,44 @@ REMOVED     → (terminal)
 
 ---
 
+### 4. Pull query returned REJECTED events to other devices
+
+**Commit:** `d7a95aa`
+
+**Problem:** The `findEventsForPull` query had no status filter. After fix #1 introduced PENDING→APPLIED/REJECTED lifecycle, REJECTED events (failed processing, invalid transitions) were being returned to other devices. Since the frontend replays events blindly, rejected events would be applied locally even though the server rejected them.
+
+**Fix:** Added `AND e.status = 'APPLIED'` filter to the pull query in `EventStoreRepository.java`.
+
+**Lines changed:** `EventStoreRepository.java:29`
+
+---
+
+### 5. State machine, guard consistency, and null org validation
+
+**Commit:** (this commit)
+
+Three low-severity hardening fixes:
+
+**5a. `STASHED → REMOVED` missing from state machine**
+
+When stashed entries are imported, the original is marked REMOVED. But VALID_TRANSITIONS only allowed `STASHED → WAITING`. Added `REMOVED` to STASHED's allowed set.
+
+**Lines changed:** `SyncService.java:51`
+
+**5b. `processQueueEnded` and `processStashImported` now use VALID_TRANSITIONS for skip logic**
+
+Previously used manual `entry.getState() == WAITING` / `== STASHED` checks. Now uses `VALID_TRANSITIONS` map to determine if the transition is allowed, keeping batch skip behavior (continue instead of throw) while staying consistent with the state machine. The `STASHED → REMOVED` transition in stash import now also uses `guardStateTransition()`.
+
+**Lines changed:** `SyncService.java:560-567`, `SyncService.java:615-647`
+
+**5c. Early fail if user has no organization**
+
+Previously, `org` was set to null and passed into handlers that would NullPointerException on `org.getId()`. Now throws a clear error upfront: "Cannot sync events without an organization".
+
+**Lines changed:** `SyncService.java:82-86`
+
+---
+
 ## Medium Issues (Pending)
 
 ### M1. `userRoles` always empty in sync pull response

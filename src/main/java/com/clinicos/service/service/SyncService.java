@@ -48,7 +48,7 @@ public class SyncService {
             QueueEntryState.WAITING, Set.of(QueueEntryState.CALLED, QueueEntryState.REMOVED, QueueEntryState.STASHED, QueueEntryState.STEPPED_OUT),
             QueueEntryState.CALLED, Set.of(QueueEntryState.COMPLETED, QueueEntryState.REMOVED, QueueEntryState.STEPPED_OUT),
             QueueEntryState.STEPPED_OUT, Set.of(QueueEntryState.WAITING, QueueEntryState.REMOVED),
-            QueueEntryState.STASHED, Set.of(QueueEntryState.WAITING),
+            QueueEntryState.STASHED, Set.of(QueueEntryState.WAITING, QueueEntryState.REMOVED),
             QueueEntryState.COMPLETED, Set.of(),
             QueueEntryState.REMOVED, Set.of()
     );
@@ -79,11 +79,11 @@ public class SyncService {
         User user = userRepository.findById(userDetails.getId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        Organization org = null;
-        if (userDetails.getOrgId() != null) {
-            org = organizationRepository.findById(userDetails.getOrgId())
-                    .orElseThrow(() -> new RuntimeException("Organization not found"));
+        if (userDetails.getOrgId() == null) {
+            throw new RuntimeException("Cannot sync events without an organization");
         }
+        Organization org = organizationRepository.findById(userDetails.getOrgId())
+                .orElseThrow(() -> new RuntimeException("Organization not found"));
 
         // Get user's actual roles from DB
         Set<String> actualRoles = userDetails.getRoles() != null
@@ -558,11 +558,14 @@ public class SyncService {
         if (stashedEntryIds != null && !stashedEntryIds.isEmpty()) {
             for (String entryId : stashedEntryIds) {
                 QueueEntry entry = queueEntryRepository.findByUuid(entryId).orElse(null);
-                if (entry != null && entry.getState() == QueueEntryState.WAITING) {
-                    entry.setState(QueueEntryState.STASHED);
-                    entry.setStashedFromQueue(queue);
-                    queueEntryRepository.save(entry);
-                }
+                if (entry == null) continue;
+                // Skip entries not in WAITING state (may have changed since event was created)
+                Set<QueueEntryState> allowed = VALID_TRANSITIONS.getOrDefault(entry.getState(), Set.of());
+                if (!allowed.contains(QueueEntryState.STASHED)) continue;
+
+                entry.setState(QueueEntryState.STASHED);
+                entry.setStashedFromQueue(queue);
+                queueEntryRepository.save(entry);
             }
             log.info("Queue ended: {}, stashed {} entries", queueId, stashedEntryIds.size());
         } else {
@@ -610,34 +613,38 @@ public class SyncService {
         if (importedEntryIds != null && !importedEntryIds.isEmpty()) {
             for (String entryId : importedEntryIds) {
                 QueueEntry stashedEntry = queueEntryRepository.findByUuid(entryId).orElse(null);
-                if (stashedEntry != null && stashedEntry.getState() == QueueEntryState.STASHED) {
-                    Queue sourceQueue = stashedEntry.getQueue();
+                if (stashedEntry == null) continue;
+                // Skip entries not in STASHED state (may have been imported already)
+                Set<QueueEntryState> allowed = VALID_TRANSITIONS.getOrDefault(stashedEntry.getState(), Set.of());
+                if (!allowed.contains(QueueEntryState.WAITING)) continue;
 
-                    // Create new entry in new queue
-                    QueueEntry newEntry = QueueEntry.builder()
-                            .queue(newQueue)
-                            .patient(stashedEntry.getPatient())
-                            .tokenNumber(stashedEntry.getTokenNumber()) // Preserve original token
-                            .state(QueueEntryState.WAITING)
-                            .position(position++)
-                            .complaintTags(stashedEntry.getComplaintTags())
-                            .complaintText(stashedEntry.getComplaintText())
-                            .isBilled(false)
-                            .stashedFromQueue(sourceQueue)
-                            .registeredAt(System.currentTimeMillis())
-                            .build();
-                    queueEntryRepository.save(newEntry);
+                Queue sourceQueue = stashedEntry.getQueue();
 
-                    // Track max token
-                    if (stashedEntry.getTokenNumber() > maxToken) {
-                        maxToken = stashedEntry.getTokenNumber();
-                    }
+                // Create new entry in new queue
+                QueueEntry newEntry = QueueEntry.builder()
+                        .queue(newQueue)
+                        .patient(stashedEntry.getPatient())
+                        .tokenNumber(stashedEntry.getTokenNumber()) // Preserve original token
+                        .state(QueueEntryState.WAITING)
+                        .position(position++)
+                        .complaintTags(stashedEntry.getComplaintTags())
+                        .complaintText(stashedEntry.getComplaintText())
+                        .isBilled(false)
+                        .stashedFromQueue(sourceQueue)
+                        .registeredAt(System.currentTimeMillis())
+                        .build();
+                queueEntryRepository.save(newEntry);
 
-                    // Mark original entry as imported
-                    stashedEntry.setState(QueueEntryState.REMOVED);
-                    stashedEntry.setRemovalReason("imported_to_queue");
-                    queueEntryRepository.save(stashedEntry);
+                // Track max token
+                if (stashedEntry.getTokenNumber() > maxToken) {
+                    maxToken = stashedEntry.getTokenNumber();
                 }
+
+                // Mark original entry as imported (STASHED → REMOVED)
+                guardStateTransition(stashedEntry, QueueEntryState.REMOVED);
+                stashedEntry.setState(QueueEntryState.REMOVED);
+                stashedEntry.setRemovalReason("imported_to_queue");
+                queueEntryRepository.save(stashedEntry);
             }
 
             // Update queue's last token
