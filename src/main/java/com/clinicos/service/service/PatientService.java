@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -188,7 +189,7 @@ public class PatientService {
                 .patient(patient)
                 .organization(org)
                 .queueEntry(queueEntry)
-                .visitDate(LocalDate.now())
+                .visitDate(LocalDate.now(ZoneId.of("Asia/Kolkata")))
                 .complaintTags(toJson(request.getComplaintTags()))
                 .data(toJson(request.getData()))
                 .schemaVersion(request.getSchemaVersion())
@@ -199,7 +200,7 @@ public class PatientService {
 
         // Update patient stats
         patient.setTotalVisits(patient.getTotalVisits() + 1);
-        patient.setLastVisitDate(LocalDate.now());
+        patient.setLastVisitDate(LocalDate.now(ZoneId.of("Asia/Kolkata")));
         if (request.getComplaintTags() != null && !request.getComplaintTags().isEmpty()) {
             patient.setLastComplaintTags(toJson(request.getComplaintTags()));
         }
