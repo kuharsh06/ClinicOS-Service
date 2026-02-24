@@ -306,12 +306,14 @@ public class AuthService {
     }
 
     private String generateOtp() {
-        SecureRandom random = new SecureRandom();
-        StringBuilder otp = new StringBuilder();
-        for (int i = 0; i < OTP_LENGTH; i++) {
-            otp.append(random.nextInt(10));
-        }
-        return otp.toString();
+        // TODO: Restore random OTP generation when SMS service is live
+        // SecureRandom random = new SecureRandom();
+        // StringBuilder otp = new StringBuilder();
+        // for (int i = 0; i < OTP_LENGTH; i++) {
+        //     otp.append(random.nextInt(10));
+        // }
+        // return otp.toString();
+        return "123456".toString();
     }
 
     private Platform parsePlatform(String platform) {
