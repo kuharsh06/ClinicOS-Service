@@ -129,7 +129,7 @@ public class SyncService {
                 // 4. STATE GUARD - would check entity state here
                 // For now, we'll accept and let event handlers validate
 
-                // 5. APPLY - Store in event_store
+                // 5. STORE as PENDING first
                 EventStore eventStore = EventStore.builder()
                         .deviceId(event.getDeviceId())
                         .user(user)
@@ -141,7 +141,7 @@ public class SyncService {
                         .schemaVersion(event.getSchemaVersion())
                         .deviceTimestamp(event.getDeviceTimestamp())
                         .serverReceivedAt(serverTimestamp)
-                        .status(EventStatus.APPLIED)
+                        .status(EventStatus.PENDING)
                         .build();
 
                 // Set the UUID to the eventId from client
@@ -150,14 +150,35 @@ public class SyncService {
                 eventStoreRepository.save(eventStore);
 
                 // 6. Process event (apply to target entities)
-                processEvent(event, user, org);
+                try {
+                    processEvent(event, user, org);
 
-                accepted.add(SyncPushResponse.AcceptedEvent.builder()
-                        .eventId(event.getEventId())
-                        .serverReceivedAt(serverTimestamp)
-                        .build());
+                    // Mark as APPLIED only after successful processing
+                    eventStore.setStatus(EventStatus.APPLIED);
+                    eventStoreRepository.save(eventStore);
 
-                log.info("Event {} processed: {} on {}", event.getEventId(), event.getEventType(), event.getTargetEntity());
+                    accepted.add(SyncPushResponse.AcceptedEvent.builder()
+                            .eventId(event.getEventId())
+                            .serverReceivedAt(serverTimestamp)
+                            .build());
+
+                    log.info("Event {} processed: {} on {}", event.getEventId(), event.getEventType(), event.getTargetEntity());
+
+                } catch (Exception processingEx) {
+                    // Mark as REJECTED with reason - event_store stays consistent
+                    eventStore.setStatus(EventStatus.REJECTED);
+                    eventStore.setRejectionCode("PROCESSING_ERROR");
+                    eventStore.setRejectionReason(processingEx.getMessage());
+                    eventStoreRepository.save(eventStore);
+
+                    rejected.add(SyncPushResponse.RejectedEvent.builder()
+                            .eventId(event.getEventId())
+                            .code("PROCESSING_ERROR")
+                            .reason(processingEx.getMessage())
+                            .build());
+
+                    log.error("Event {} failed processing: {}", event.getEventId(), processingEx.getMessage());
+                }
 
             } catch (Exception e) {
                 log.error("Error processing event {}: {}", event.getEventId(), e.getMessage());
