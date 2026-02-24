@@ -485,7 +485,9 @@ public class SyncService {
         // Update patient visit count
         Patient patient = entry.getPatient();
         patient.setTotalVisits(patient.getTotalVisits() + 1);
-        patient.setLastVisitDate(java.time.LocalDate.now());
+        // Derive visit date from device timestamp (offline-correct), not server time
+        long completedMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+        patient.setLastVisitDate(Instant.ofEpochMilli(completedMs).atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate());
         patient.setLastComplaintTags(entry.getComplaintTags());
         patientRepository.save(patient);
 
@@ -517,10 +519,13 @@ public class SyncService {
         Queue queue = queueRepository.findByUuid(queueId)
                 .orElseThrow(() -> new RuntimeException("Queue not found: " + queueId));
 
-        // Calculate paused duration
+        // Calculate paused duration using device timestamp (offline-correct)
         if (queue.getPauseStartTime() != null) {
-            long pausedDuration = System.currentTimeMillis() - queue.getPauseStartTime();
-            queue.setTotalPausedMs(queue.getTotalPausedMs() + pausedDuration);
+            long resumedAt = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+            long pausedDuration = resumedAt - queue.getPauseStartTime();
+            if (pausedDuration > 0) {
+                queue.setTotalPausedMs(queue.getTotalPausedMs() + pausedDuration);
+            }
         }
 
         queue.setStatus(QueueStatus.ACTIVE);
@@ -544,7 +549,9 @@ public class SyncService {
 
         // End the queue
         queue.setStatus(QueueStatus.ENDED);
-        queue.setEndedAt(Instant.now());
+        // Use device timestamp for accurate end time (offline-correct)
+        long endedMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+        queue.setEndedAt(Instant.ofEpochMilli(endedMs));
         queueRepository.save(queue);
 
         // Stash specified entries
