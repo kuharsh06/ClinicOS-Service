@@ -15,8 +15,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.data.domain.PageRequest;
+
 import java.time.LocalDate;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -47,46 +48,26 @@ public class PatientService {
                 .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
 
         int actualLimit = Math.min(limit != null ? limit : DEFAULT_LIMIT, MAX_LIMIT);
+        // Fetch one extra to check hasMore
+        PageRequest page = PageRequest.of(0, actualLimit + 1);
 
         List<Patient> patients;
         if (search != null && search.length() >= 2) {
-            // Search by name or phone
-            patients = patientRepository.searchByName(org.getId(), search);
-            // Also search by phone if the search looks like a phone number
-            if (search.matches("\\d+")) {
-                List<Patient> phoneMatches = patientRepository.findByOrganizationId(org.getId())
-                        .stream()
-                        .filter(p -> p.getPhone().contains(search))
-                        .toList();
-                // Merge results, avoiding duplicates
-                for (Patient p : phoneMatches) {
-                    if (patients.stream().noneMatch(existing -> existing.getId().equals(p.getId()))) {
-                        patients.add(p);
-                    }
-                }
-            }
+            // Search by name OR phone in a single DB query
+            patients = patientRepository.searchByNameOrPhone(org.getId(), search, page);
         } else {
-            patients = patientRepository.findByOrganizationId(org.getId());
+            // Sorted paginated query at DB level
+            String sortKey = sort != null ? sort : "last_visit_desc";
+            patients = switch (sortKey) {
+                case "name_asc" -> patientRepository.findByOrgIdOrderByNameAsc(org.getId(), page);
+                case "created_desc" -> patientRepository.findByOrgIdOrderByCreatedDesc(org.getId(), page);
+                case "visits_desc" -> patientRepository.findByOrgIdOrderByVisitsDesc(org.getId(), page);
+                default -> patientRepository.findByOrgIdOrderByLastVisitDesc(org.getId(), page);
+            };
         }
 
-        // Apply sorting
-        patients = sortPatients(patients, sort != null ? sort : "last_visit_desc");
-
-        // Apply cursor-based pagination
-        int startIndex = 0;
-        if (afterCursor != null) {
-            String cursorPatientId = decodeCursor(afterCursor);
-            for (int i = 0; i < patients.size(); i++) {
-                if (patients.get(i).getUuid().equals(cursorPatientId)) {
-                    startIndex = i + 1;
-                    break;
-                }
-            }
-        }
-
-        int endIndex = Math.min(startIndex + actualLimit, patients.size());
-        List<Patient> pagePatients = patients.subList(startIndex, endIndex);
-        boolean hasMore = endIndex < patients.size();
+        boolean hasMore = patients.size() > actualLimit;
+        List<Patient> pagePatients = hasMore ? patients.subList(0, actualLimit) : patients;
 
         List<PatientListResponse.PatientListItem> items = pagePatients.stream()
                 .map(this::toPatientListItem)
@@ -126,26 +107,15 @@ public class PatientService {
 
         int actualLimit = Math.min(limit != null ? limit : 10, 50);
 
-        List<Visit> visits = visitRepository.findByPatientIdOrderByVisitDateDesc(patient.getId());
-
         // Check if user has permission to view full clinical data
         boolean canViewFull = canViewFullClinicalData(org);
 
-        // Apply cursor-based pagination
-        int startIndex = 0;
-        if (afterCursor != null) {
-            String cursorVisitId = decodeCursor(afterCursor);
-            for (int i = 0; i < visits.size(); i++) {
-                if (visits.get(i).getUuid().equals(cursorVisitId)) {
-                    startIndex = i + 1;
-                    break;
-                }
-            }
-        }
+        // DB-level pagination with JOIN FETCH to avoid N+1 (fetches createdBy, user, queueEntry)
+        List<Visit> visits = visitRepository.findByPatientIdWithDetailsOrderByDateDesc(
+                patient.getId(), PageRequest.of(0, actualLimit + 1));
 
-        int endIndex = Math.min(startIndex + actualLimit, visits.size());
-        List<Visit> pageVisits = visits.subList(startIndex, endIndex);
-        boolean hasMore = endIndex < visits.size();
+        boolean hasMore = visits.size() > actualLimit;
+        List<Visit> pageVisits = hasMore ? visits.subList(0, actualLimit) : visits;
 
         List<PatientThreadResponse.VisitDto> visitDtos = pageVisits.stream()
                 .map(v -> toVisitDto(v, canViewFull))
@@ -188,6 +158,16 @@ public class PatientService {
         QueueEntry queueEntry = null;
         if (request.getQueueEntryId() != null) {
             queueEntry = queueEntryRepository.findByUuid(request.getQueueEntryId()).orElse(null);
+            // Validate queue entry belongs to same org and patient
+            if (queueEntry != null) {
+                boolean wrongOrg = !queueEntry.getQueue().getOrganization().getId().equals(org.getId());
+                boolean wrongPatient = !queueEntry.getPatient().getId().equals(patient.getId());
+                if (wrongOrg || wrongPatient) {
+                    queueEntry = null; // silently ignore invalid reference
+                    log.warn("Queue entry {} does not match org {} or patient {}",
+                            request.getQueueEntryId(), orgUuid, patientUuid);
+                }
+            }
         }
 
         Visit visit = Visit.builder()
@@ -263,32 +243,19 @@ public class PatientService {
 
         List<Patient> patients;
         if (query != null && query.length() >= 2) {
-            patients = patientRepository.searchByName(org.getId(), query);
-            // Also search by phone
-            if (query.matches("\\d+")) {
-                List<Patient> phoneMatches = patientRepository.findByOrganizationId(org.getId())
-                        .stream()
-                        .filter(p -> p.getPhone().contains(query))
-                        .limit(actualLimit)
-                        .toList();
-                for (Patient p : phoneMatches) {
-                    if (patients.stream().noneMatch(existing -> existing.getId().equals(p.getId()))) {
-                        patients.add(p);
-                    }
-                }
-            }
+            // Single DB query searches both name and phone
+            patients = patientRepository.searchByNameOrPhone(org.getId(), query, PageRequest.of(0, actualLimit));
         } else {
             patients = List.of();
         }
 
         List<PatientSearchResponse.PatientSearchResult> results = patients.stream()
-                .limit(actualLimit)
                 .map(p -> PatientSearchResponse.PatientSearchResult.builder()
                         .patientId(p.getUuid())
                         .phone(p.getPhone())
                         .name(p.getName())
                         .age(p.getAge())
-                        .gender(p.getGender() != null ? p.getGender().name() : null)
+                        .gender(p.getGender() != null ? p.getGender().getValue() : null)
                         .lastVisitDate(p.getLastVisitDate() != null ? p.getLastVisitDate().toString() : null)
                         .build())
                 .collect(Collectors.toList());
@@ -298,34 +265,13 @@ public class PatientService {
                 .build();
     }
 
-    private List<Patient> sortPatients(List<Patient> patients, String sort) {
-        return switch (sort) {
-            case "name_asc" -> patients.stream()
-                    .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))
-                    .collect(Collectors.toList());
-            case "created_desc" -> patients.stream()
-                    .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
-                    .collect(Collectors.toList());
-            case "visits_desc" -> patients.stream()
-                    .sorted((a, b) -> b.getTotalVisits().compareTo(a.getTotalVisits()))
-                    .collect(Collectors.toList());
-            default -> patients.stream()  // last_visit_desc
-                    .sorted((a, b) -> {
-                        if (a.getLastVisitDate() == null) return 1;
-                        if (b.getLastVisitDate() == null) return -1;
-                        return b.getLastVisitDate().compareTo(a.getLastVisitDate());
-                    })
-                    .collect(Collectors.toList());
-        };
-    }
-
     private PatientListResponse.PatientListItem toPatientListItem(Patient patient) {
         return PatientListResponse.PatientListItem.builder()
                 .patientId(patient.getUuid())
                 .phone(patient.getPhone())
                 .name(patient.getName())
                 .age(patient.getAge())
-                .gender(patient.getGender() != null ? patient.getGender().name() : null)
+                .gender(patient.getGender() != null ? patient.getGender().getValue() : null)
                 .totalVisits(patient.getTotalVisits())
                 .lastVisitDate(patient.getLastVisitDate() != null ? patient.getLastVisitDate().toString() : null)
                 .lastComplaintTags(parseJsonArray(patient.getLastComplaintTags()))
@@ -386,15 +332,7 @@ public class PatientService {
     }
 
     private String encodeCursor(String id) {
-        return Base64.getEncoder().encodeToString(id.getBytes());
-    }
-
-    private String decodeCursor(String cursor) {
-        try {
-            return new String(Base64.getDecoder().decode(cursor));
-        } catch (Exception e) {
-            return null;
-        }
+        return java.util.Base64.getEncoder().encodeToString(id.getBytes());
     }
 
     private String toJson(Object obj) {
