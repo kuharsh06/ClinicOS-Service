@@ -73,7 +73,7 @@ public class OrganizationService {
                 .state(request.getState())
                 .pin(request.getPin())
                 .logoUrl(request.getLogo())
-                .brandColor(request.getBrandColor())
+                .brandColor(request.getBrandColor() != null ? request.getBrandColor() : "#059669")
                 .settings(toJson(settings))
                 .workingHours(toJson(request.getWorkingHours()))
                 .createdBy(user)
