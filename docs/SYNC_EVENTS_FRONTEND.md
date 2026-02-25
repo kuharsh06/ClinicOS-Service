@@ -48,7 +48,7 @@ Every event in the `events[]` array must have this structure:
 | `deviceId` | string | Yes | Must match request-level deviceId |
 | `userId` | string (UUID) | Yes | User UUID (not member UUID) |
 | `userRoles` | string[] | Yes | Informational only — server checks DB roles |
-| `eventType` | string | Yes | One of the 11 synced event types |
+| `eventType` | string | Yes | One of the 12 synced event types |
 | `targetEntity` | string (UUID) | Yes | Primary entity UUID (varies by event type) |
 | `targetTable` | string | Yes | `"queue_entry"` / `"queue"` / `"visit"` / `"billing"` |
 | `payload` | object | Yes | Event-specific data |
@@ -121,7 +121,7 @@ Use `serverTimestamp` as `since` for the next pull. If `hasMore: true`, pull aga
 
 ---
 
-# Event Payloads (11 Synced Events)
+# Event Payloads (12 Synced Events)
 
 ---
 
@@ -477,19 +477,61 @@ Empty payload. Server computes pause duration from `deviceTimestamp`.
 **IMPORTANT:**
 - Event type is `"bill_updated"` — **NOT** `"bill_paid"`
 - `paidAt` is epoch milliseconds (number), not ISO string
-- Bills are created via REST `POST /v1/orgs/{orgId}/bills`, not via sync
 - This event only handles marking paid/unpaid
+- Bills are created via sync `bill_created` event (below)
+
+---
+
+## 12. bill_created
+
+**Who:** assistant, doctor
+**targetEntity:** bill UUID (client-generated)
+**targetTable:** `"billing"`
+**Synced:** Yes
+
+```json
+{
+  "eventType": "bill_created",
+  "targetEntity": "bill-u1v2w3x4",
+  "targetTable": "billing",
+  "payload": {
+    "patientId": "pat-e5f6g7h8",
+    "queueEntryId": "entry-a1b2c3d4",
+    "items": [
+      { "name": "Consultation Fee", "amount": 500 },
+      { "name": "ECG", "amount": 300 }
+    ],
+    "totalAmount": 800,
+    "sendSMS": true
+  }
+}
+```
+
+| Payload Field | Type | Required | Notes |
+|---------------|------|----------|-------|
+| `patientId` | string | **Yes** | Patient UUID — **cannot be null** |
+| `queueEntryId` | string | No | Links bill to queue entry. Marks entry as billed. |
+| `items` | array | No | Bill line items `[{name, amount}]` |
+| `items[].name` | string | Yes (per item) | Item description |
+| `items[].amount` | number | Yes (per item) | Amount in INR |
+| `totalAmount` | number | No | If not provided, server calculates from items |
+| `sendSMS` | boolean | No | Request SMS bill notification (not yet implemented) |
+
+**Server behavior:**
+1. Validates patient belongs to org
+2. Creates `bills` row with patient name, phone, doctor name, token number
+3. Creates `bill_items` rows for each item
+4. Marks queue entry as `isBilled = true` (if queueEntryId provided)
+5. Idempotent — if bill UUID already exists, skips silently
+6. Bill appears in `GET /bills` list, pagination, and summary
+
+**Note:** This replaces the REST `POST /v1/orgs/{orgId}/bills` for bill creation. Using sync means bills work offline and other devices see them via pull.
 
 ---
 
 # Events NOT Synced (Frontend Local Only)
 
-These events exist in the frontend reducer but are **NOT pushed to the server**:
-
-| Event | Purpose | Server equivalent |
-|-------|---------|------------------|
-| `bill_created` | Local reducer creates bill UI | REST `POST /v1/orgs/{orgId}/bills` |
-| `bill_updated` (local) | Local reducer marks paid UI | Sync `bill_updated` event (above) |
+No events are local-only anymore. All 12 events are synced.
 
 ---
 
@@ -559,6 +601,7 @@ ended   → (terminal — pause/resume rejected)
 | `queue_ended` | Yes | Yes | No |
 | `stash_imported` | Yes | Yes | No |
 | `visit_saved` | No | **Yes** | No |
+| `bill_created` | Yes | Yes | No |
 | `bill_updated` | Yes | Yes | No |
 
 ---
