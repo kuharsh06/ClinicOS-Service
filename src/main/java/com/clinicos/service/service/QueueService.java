@@ -1,7 +1,10 @@
 package com.clinicos.service.service;
 
+import com.clinicos.service.dto.request.CreateComplaintTagRequest;
 import com.clinicos.service.dto.request.EndQueueRequest;
 import com.clinicos.service.dto.request.ImportStashRequest;
+import com.clinicos.service.dto.request.UpdateComplaintTagRequest;
+import com.clinicos.service.exception.ConflictException;
 import com.clinicos.service.dto.response.ComplaintTagsResponse;
 import com.clinicos.service.dto.response.PatientLookupResponse;
 import com.clinicos.service.dto.response.QueueResponse;
@@ -273,6 +276,102 @@ public class QueueService {
         return ComplaintTagsResponse.builder()
                 .tags(tagDtos)
                 .build();
+    }
+
+    /**
+     * Create a complaint tag for the organization.
+     */
+    @Transactional
+    public ComplaintTagsResponse.ComplaintTagDto createComplaintTag(String orgUuid, CreateComplaintTagRequest request) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        // Check duplicate key
+        if (complaintTagRepository.findByOrganizationIdAndTagKey(org.getId(), request.getKey()).isPresent()) {
+            throw new ConflictException("Complaint tag with key '" + request.getKey() + "' already exists");
+        }
+
+        // Auto-compute sortOrder if not provided
+        Integer sortOrder = request.getSortOrder();
+        if (sortOrder == null) {
+            List<ComplaintTag> existing = complaintTagRepository.findByOrganizationIdAndIsActiveTrueOrderBySortOrderAsc(org.getId());
+            sortOrder = existing.stream().mapToInt(ComplaintTag::getSortOrder).max().orElse(0) + 1;
+        }
+
+        ComplaintTag tag = ComplaintTag.builder()
+                .organization(org)
+                .tagKey(request.getKey())
+                .labelEn(request.getLabelEn())
+                .labelHi(request.getLabelHi())
+                .sortOrder(sortOrder)
+                .isCommon(Boolean.TRUE.equals(request.getIsCommon()))
+                .build();
+
+        complaintTagRepository.save(tag);
+        log.info("Complaint tag '{}' created for org {}", request.getKey(), orgUuid);
+
+        return ComplaintTagsResponse.ComplaintTagDto.builder()
+                .tagId(tag.getUuid())
+                .key(tag.getTagKey())
+                .labelEn(tag.getLabelEn())
+                .labelHi(tag.getLabelHi())
+                .sortOrder(tag.getSortOrder())
+                .isCommon(tag.getIsCommon())
+                .build();
+    }
+
+    /**
+     * Update a complaint tag.
+     */
+    @Transactional
+    public ComplaintTagsResponse.ComplaintTagDto updateComplaintTag(String orgUuid, String tagUuid, UpdateComplaintTagRequest request) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        ComplaintTag tag = complaintTagRepository.findByUuid(tagUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("ComplaintTag", tagUuid));
+
+        if (!tag.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("ComplaintTag", tagUuid);
+        }
+
+        if (request.getLabelEn() != null) tag.setLabelEn(request.getLabelEn());
+        if (request.getLabelHi() != null) tag.setLabelHi(request.getLabelHi());
+        if (request.getSortOrder() != null) tag.setSortOrder(request.getSortOrder());
+        if (request.getIsCommon() != null) tag.setIsCommon(request.getIsCommon());
+        if (request.getIsActive() != null) tag.setIsActive(request.getIsActive());
+
+        complaintTagRepository.save(tag);
+        log.info("Complaint tag '{}' updated in org {}", tagUuid, orgUuid);
+
+        return ComplaintTagsResponse.ComplaintTagDto.builder()
+                .tagId(tag.getUuid())
+                .key(tag.getTagKey())
+                .labelEn(tag.getLabelEn())
+                .labelHi(tag.getLabelHi())
+                .sortOrder(tag.getSortOrder())
+                .isCommon(tag.getIsCommon())
+                .build();
+    }
+
+    /**
+     * Soft-delete a complaint tag (set isActive = false).
+     */
+    @Transactional
+    public void deleteComplaintTag(String orgUuid, String tagUuid) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        ComplaintTag tag = complaintTagRepository.findByUuid(tagUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("ComplaintTag", tagUuid));
+
+        if (!tag.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("ComplaintTag", tagUuid);
+        }
+
+        tag.setIsActive(false);
+        complaintTagRepository.save(tag);
+        log.info("Complaint tag '{}' deactivated in org {}", tagUuid, orgUuid);
     }
 
     private QueueResponse.QueueSnapshot buildQueueSnapshot(Queue queue) {

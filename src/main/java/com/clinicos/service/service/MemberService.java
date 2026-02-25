@@ -251,6 +251,20 @@ public class MemberService {
     }
 
     @Transactional(readOnly = true)
+    public OrgMemberResponse getProfile(String orgUuid, String userUuid) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        User user = userRepository.findByUuid(userUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userUuid));
+
+        OrgMember member = orgMemberRepository.findByOrganizationIdAndUserId(org.getId(), user.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Member", userUuid));
+
+        return buildMemberResponseWithRoles(member);
+    }
+
+    @Transactional(readOnly = true)
     public DoctorsListResponse getDoctors(String orgUuid) {
         Organization org = organizationRepository.findByUuid(orgUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));

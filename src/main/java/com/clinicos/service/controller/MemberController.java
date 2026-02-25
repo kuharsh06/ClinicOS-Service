@@ -55,6 +55,17 @@ public class MemberController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    @GetMapping("/{userId}/profile")
+    @Operation(summary = "Get Profile", description = "Get member profile data")
+    @RequirePermission("members:view")
+    public ResponseEntity<ApiResponse<OrgMemberResponse>> getProfile(
+            @PathVariable String orgId,
+            @PathVariable String userId) {
+
+        OrgMemberResponse response = memberService.getProfile(orgId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
     @PutMapping("/{userId}/profile")
     @Operation(summary = "Update Profile", description = "Update member profile data")
     public ResponseEntity<ApiResponse<OrgMemberResponse>> updateProfile(

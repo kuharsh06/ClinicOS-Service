@@ -1,7 +1,9 @@
 package com.clinicos.service.controller;
 
+import com.clinicos.service.dto.request.CreateComplaintTagRequest;
 import com.clinicos.service.dto.request.EndQueueRequest;
 import com.clinicos.service.dto.request.ImportStashRequest;
+import com.clinicos.service.dto.request.UpdateComplaintTagRequest;
 import com.clinicos.service.dto.response.ApiResponse;
 import com.clinicos.service.dto.response.ComplaintTagsResponse;
 import com.clinicos.service.dto.response.PatientLookupResponse;
@@ -10,6 +12,7 @@ import com.clinicos.service.security.RequirePermission;
 import com.clinicos.service.service.QueueService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -91,5 +94,48 @@ public class QueueController {
 
         ComplaintTagsResponse response = queueService.getComplaintTags(orgId);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Create a complaint tag.
+     * POST /v1/orgs/:orgId/complaint-tags
+     */
+    @PostMapping("/complaint-tags")
+    @RequirePermission("org:update")
+    public ResponseEntity<ApiResponse<ComplaintTagsResponse.ComplaintTagDto>> createComplaintTag(
+            @PathVariable String orgId,
+            @RequestBody @Valid CreateComplaintTagRequest request) {
+
+        ComplaintTagsResponse.ComplaintTagDto tag = queueService.createComplaintTag(orgId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(tag));
+    }
+
+    /**
+     * Update a complaint tag.
+     * PUT /v1/orgs/:orgId/complaint-tags/:tagId
+     */
+    @PutMapping("/complaint-tags/{tagId}")
+    @RequirePermission("org:update")
+    public ResponseEntity<ApiResponse<ComplaintTagsResponse.ComplaintTagDto>> updateComplaintTag(
+            @PathVariable String orgId,
+            @PathVariable String tagId,
+            @RequestBody @Valid UpdateComplaintTagRequest request) {
+
+        ComplaintTagsResponse.ComplaintTagDto tag = queueService.updateComplaintTag(orgId, tagId, request);
+        return ResponseEntity.ok(ApiResponse.success(tag));
+    }
+
+    /**
+     * Deactivate a complaint tag.
+     * DELETE /v1/orgs/:orgId/complaint-tags/:tagId
+     */
+    @DeleteMapping("/complaint-tags/{tagId}")
+    @RequirePermission("org:update")
+    public ResponseEntity<ApiResponse<Map<String, String>>> deleteComplaintTag(
+            @PathVariable String orgId,
+            @PathVariable String tagId) {
+
+        queueService.deleteComplaintTag(orgId, tagId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("message", "Tag deactivated")));
     }
 }

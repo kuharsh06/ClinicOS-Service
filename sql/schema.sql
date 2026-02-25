@@ -541,7 +541,7 @@ INSERT INTO roles (uuid, name, display_name, description) VALUES
 (UUID(), 'owner', 'Owner', 'Full access to organization'),
 (UUID(), 'admin', 'Admin', 'Administrative access'),
 (UUID(), 'doctor', 'Doctor', 'Doctor role with clinical access'),
-(UUID(), 'receptionist', 'Receptionist', 'Front desk operations'),
+(UUID(), 'assistant', 'Assistant', 'Front desk operations'),
 (UUID(), 'nurse', 'Nurse', 'Clinical support staff'),
 (UUID(), 'billing', 'Billing Staff', 'Billing operations only');
 
@@ -600,10 +600,10 @@ WHERE r.name = 'doctor' AND p.name IN (
     'visit:create', 'visit:update', 'visit:view', 'billing:view', 'analytics:view'
 );
 
--- Receptionist permissions
+-- Assistant permissions
 INSERT INTO role_permissions (uuid, role_id, permission_id)
 SELECT UUID(), r.id, p.id FROM roles r, permissions p
-WHERE r.name = 'receptionist' AND p.name IN (
+WHERE r.name = 'assistant' AND p.name IN (
     'org:view', 'members:view', 'queue:view', 'queue:manage',
     'patient:view', 'patient:create', 'patient:update',
     'billing:view', 'billing:create', 'billing:mark_paid', 'sms:view_templates', 'sms:manual_send'
