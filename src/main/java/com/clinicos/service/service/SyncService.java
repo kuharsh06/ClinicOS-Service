@@ -830,7 +830,7 @@ public class SyncService {
         String patientId = (String) payload.get("patientId");
         String queueEntryId = (String) payload.get("queueEntryId");
         List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
-        Number totalAmountNum = safeNumber(payload.get("totalAmount"));
+        Number totalAmountNum = (Number) payload.get("totalAmount");
         Boolean sendSMS = (Boolean) payload.get("sendSMS");
 
         if (patientId == null || patientId.isBlank()) {
@@ -903,7 +903,7 @@ public class SyncService {
             int sortOrder = 0;
             for (Map<String, Object> itemData : items) {
                 String name = (String) itemData.get("name");
-                Number amount = safeNumber(itemData.get("amount"));
+                Number amount = (Number) itemData.get("amount");
                 BillItem billItem = BillItem.builder()
                         .bill(bill)
                         .name(name != null ? name : "Item")
@@ -950,7 +950,7 @@ public class SyncService {
             bill.setIsPaid(true);
             // Use deviceTimestamp for paidAt (offline-correct)
             long paidMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
-            Number paidAtFromPayload = safeNumber(payload.get("paidAt"));
+            Number paidAtFromPayload = (Number) payload.get("paidAt");
             if (paidAtFromPayload != null) {
                 bill.setPaidAt(java.time.Instant.ofEpochMilli(paidAtFromPayload.longValue()));
             } else {
@@ -976,8 +976,8 @@ public class SyncService {
         String patientId = (String) payload.get("patientId");
         String queueEntryId = (String) payload.get("queueEntryId");
         List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
-        Number totalAmountNum = safeNumber(payload.get("totalAmount"));
-        Number paidAtNum = safeNumber(payload.get("paidAt"));
+        Number totalAmountNum = (Number) payload.get("totalAmount");
+        Number paidAtNum = (Number) payload.get("paidAt");
 
         if (patientId == null || patientId.isBlank()) {
             throw new IllegalArgumentException("patientId is required in bill_paid payload");
@@ -1054,7 +1054,7 @@ public class SyncService {
             int sortOrder = 0;
             for (Map<String, Object> itemData : items) {
                 String name = (String) itemData.get("name");
-                Number amount = safeNumber(itemData.get("amount"));
+                Number amount = (Number) itemData.get("amount");
                 BillItem billItem = BillItem.builder()
                         .bill(bill)
                         .name(name != null ? name : "Item")
@@ -1105,25 +1105,6 @@ public class SyncService {
                 .synced(true)
                 .schemaVersion(event.getSchemaVersion())
                 .build();
-    }
-
-    /**
-     * Safely parse a value as Number. Handles Number, String (parseable), and null.
-     */
-    private Number safeNumber(Object value) {
-        if (value == null) return null;
-        if (value instanceof Number) return (Number) value;
-        if (value instanceof String) {
-            try {
-                String s = ((String) value).trim();
-                if (s.isEmpty()) return null;
-                if (s.contains(".")) return Double.parseDouble(s);
-                return Long.parseLong(s);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return null;
     }
 
     private String toJson(Object obj) {
