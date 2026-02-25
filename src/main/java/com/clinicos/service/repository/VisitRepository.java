@@ -20,14 +20,14 @@ public interface VisitRepository extends JpaRepository<Visit, Integer> {
 
     @Query("SELECT v FROM Visit v JOIN FETCH v.createdBy cb JOIN FETCH cb.user " +
             "LEFT JOIN FETCH v.queueEntry " +
-            "WHERE v.patient.id = :patientId ORDER BY v.visitDate DESC, v.createdAt DESC")
+            "WHERE v.patient.id = :patientId ORDER BY v.visitDate DESC, v.id DESC")
     List<Visit> findByPatientIdWithDetailsOrderByDateDesc(@Param("patientId") Integer patientId, Pageable pageable);
 
     @Query("SELECT v FROM Visit v JOIN FETCH v.createdBy cb JOIN FETCH cb.user " +
             "LEFT JOIN FETCH v.queueEntry " +
             "WHERE v.patient.id = :patientId " +
             "AND (v.visitDate < :cursorDate OR (v.visitDate = :cursorDate AND v.id < :cursorId)) " +
-            "ORDER BY v.visitDate DESC, v.createdAt DESC")
+            "ORDER BY v.visitDate DESC, v.id DESC")
     List<Visit> findByPatientIdWithDetailsAfterCursor(
             @Param("patientId") Integer patientId, @Param("cursorDate") LocalDate cursorDate,
             @Param("cursorId") Integer cursorId, Pageable pageable);
