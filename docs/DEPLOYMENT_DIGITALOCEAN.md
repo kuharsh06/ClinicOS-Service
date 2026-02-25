@@ -232,9 +232,9 @@ nginx -t
 systemctl restart nginx
 ```
 
-**Skipped for now** — domain `clinicos.in` not yet purchased.
+**Initially skipped** — domain `clinicos.in` not yet purchased.
 
-### Disabled Nginx proxy (using direct IP access for now)
+### Initial workaround: Disabled Nginx (used direct IP access)
 
 ```bash
 rm /etc/nginx/sites-enabled/clinicos
@@ -242,21 +242,65 @@ systemctl stop nginx
 systemctl disable nginx
 ```
 
-### SSL (when domain is ready)
+**Error encountered with `api.clinicos.in`:** `NXDOMAIN looking up A for api.clinicos.in` — domain DNS not configured.
+
+### Domain Setup: `clinicos.codingrippler.com`
+
+Mapped `clinicos.codingrippler.com` → `64.227.188.143` via DNS A record in domain registrar.
+
+### Re-enabled Nginx with correct domain
+
+```bash
+# Re-enable Nginx
+systemctl enable nginx
+systemctl start nginx
+
+# Update config with actual domain
+cat > /etc/nginx/sites-available/clinicos << 'EOF'
+server {
+    listen 80;
+    server_name clinicos.codingrippler.com;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
+
+# Enable and test
+ln -s /etc/nginx/sites-available/clinicos /etc/nginx/sites-enabled/
+nginx -t
+systemctl restart nginx
+```
+
+### SSL with Let's Encrypt
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot --nginx -d api.clinicos.in
+certbot --nginx -d clinicos.codingrippler.com
 ```
 
-**Error encountered:** `NXDOMAIN looking up A for api.clinicos.in` — domain DNS not configured.
-**Resolution:** Skipped SSL. Will configure when domain is purchased and DNS A record points to `64.227.188.143`.
+Certbot auto-configures Nginx for HTTPS and sets up auto-renewal.
+
+### Verify HTTPS
+
+```bash
+curl https://clinicos.codingrippler.com/actuator/health
+```
 
 ---
 
 ## 7. Verify Deployment
 
 ```bash
+# Via HTTPS (production)
+curl https://clinicos.codingrippler.com/actuator/health
+
+# Via direct IP (fallback)
 curl http://64.227.188.143:8080/actuator/health
 ```
 
@@ -305,8 +349,10 @@ ssh root@64.227.188.143 "systemctl restart clinicos"
 | **Java** | 21.0.10 |
 | **MySQL** | 8.x |
 | **App Port** | 8080 |
-| **Base URL** | `http://64.227.188.143:8080` |
-| **Health Check** | `http://64.227.188.143:8080/actuator/health` |
+| **Domain** | `clinicos.codingrippler.com` |
+| **Base URL (HTTPS)** | `https://clinicos.codingrippler.com` |
+| **Base URL (IP)** | `http://64.227.188.143:8080` |
+| **Health Check** | `https://clinicos.codingrippler.com/actuator/health` |
 | **OTP (dev)** | Always `123456` |
 | **DB Name** | clinicos |
 | **DB User** | clinicos |
