@@ -451,47 +451,15 @@ Empty payload. Server computes pause duration from `deviceTimestamp`.
 
 ---
 
-## 11. bill_updated (mark paid/unpaid)
-
-**Who:** assistant, doctor
-**targetEntity:** bill UUID
-**targetTable:** `"billing"`
-
-```json
-{
-  "eventType": "bill_updated",
-  "targetEntity": "bill-u1v2w3x4",
-  "targetTable": "billing",
-  "payload": {
-    "isPaid": true,
-    "paidAt": 1772108000000
-  }
-}
-```
-
-| Payload Field | Type | Required | Notes |
-|---------------|------|----------|-------|
-| `isPaid` | boolean | Yes | `true` to mark paid, `false` to mark unpaid |
-| `paidAt` | number | No | Epoch milliseconds. Falls back to `deviceTimestamp` if not provided. |
-
-**IMPORTANT:**
-- Event type is `"bill_updated"` — **NOT** `"bill_paid"`
-- `paidAt` is epoch milliseconds (number), not ISO string
-- This event only handles marking paid/unpaid
-- Bills are created via sync `bill_created` event (below)
-
----
-
-## 12. bill_created
+## 11. bill_paid (create bill + mark paid — single event)
 
 **Who:** assistant, doctor
 **targetEntity:** bill UUID (client-generated)
 **targetTable:** `"billing"`
-**Synced:** Yes
 
 ```json
 {
-  "eventType": "bill_created",
+  "eventType": "bill_paid",
   "targetEntity": "bill-u1v2w3x4",
   "targetTable": "billing",
   "payload": {
@@ -502,7 +470,7 @@ Empty payload. Server computes pause duration from `deviceTimestamp`.
       { "name": "ECG", "amount": 300 }
     ],
     "totalAmount": 800,
-    "sendSMS": true
+    "paidAt": 1772108000000
   }
 }
 ```
@@ -515,23 +483,25 @@ Empty payload. Server computes pause duration from `deviceTimestamp`.
 | `items[].name` | string | Yes (per item) | Item description |
 | `items[].amount` | number | Yes (per item) | Amount in INR |
 | `totalAmount` | number | No | If not provided, server calculates from items |
-| `sendSMS` | boolean | No | Request SMS bill notification (not yet implemented) |
+| `paidAt` | number | No | Epoch milliseconds. Falls back to `deviceTimestamp` if not provided. |
 
 **Server behavior:**
 1. Validates patient belongs to org
-2. Creates `bills` row with patient name, phone, doctor name, token number
-3. Creates `bill_items` rows for each item
+2. Creates `bills` row with items, total, patient info, doctor name
+3. Marks bill as **paid** (`isPaid=true`, `paidAt` set)
 4. Marks queue entry as `isBilled = true` (if queueEntryId provided)
 5. Idempotent — if bill UUID already exists, skips silently
-6. Bill appears in `GET /bills` list, pagination, and summary
+6. Bill appears in `GET /bills` list, pagination, and summary as **paid**
 
-**Note:** This replaces the REST `POST /v1/orgs/{orgId}/bills` for bill creation. Using sync means bills work offline and other devices see them via pull.
+**Note:** This is a single event — creates the bill AND marks it paid in one shot. No need for separate `bill_created` + `bill_updated` events. In a real clinic, billing and payment happen at the same moment.
+
+**Legacy events:** `bill_created` and `bill_updated` still work on the backend for backward compatibility, but `bill_paid` is the recommended single event.
 
 ---
 
 # Events NOT Synced (Frontend Local Only)
 
-No events are local-only anymore. All 12 events are synced.
+No events are local-only anymore. All 11 primary events are synced.
 
 ---
 
@@ -601,8 +571,7 @@ ended   → (terminal — pause/resume rejected)
 | `queue_ended` | Yes | Yes | No |
 | `stash_imported` | Yes | Yes | No |
 | `visit_saved` | No | **Yes** | No |
-| `bill_created` | Yes | Yes | No |
-| `bill_updated` | Yes | Yes | No |
+| `bill_paid` | Yes | Yes | No |
 
 ---
 
@@ -614,7 +583,7 @@ ended   → (terminal — pause/resume rejected)
 | `patient.name` is null | DB constraint violation | Always provide name |
 | Patient fields not nested under `"patient"` | name=null crash | Nest under `payload.patient` |
 | `visit_saved` targetEntity is visitId | Patient not found | Set targetEntity to patientId |
-| `bill_paid` event type | INVALID_EVENT_TYPE | Use `bill_updated` |
+| `bill_paid` missing patientId | PROCESSING_ERROR | Always include patientId |
 | `stash_imported` without doctorId | Doctor not found | Add doctorId to payload |
 | `call_now` while someone is serving | PROCESSING_ERROR | Complete/step_out first |
 | `patient_removed` on now_serving | PROCESSING_ERROR | Only remove waiting patients |

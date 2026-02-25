@@ -73,7 +73,8 @@ public class SyncService {
             Map.entry("stash_imported", List.of("assistant", "doctor")),
             Map.entry("visit_saved", List.of("doctor")),
             Map.entry("bill_created", List.of("assistant", "doctor")),
-            Map.entry("bill_updated", List.of("assistant", "doctor"))
+            Map.entry("bill_updated", List.of("assistant", "doctor")),
+            Map.entry("bill_paid", List.of("assistant", "doctor"))
     );
 
     @Transactional
@@ -301,6 +302,9 @@ public class SyncService {
                 break;
             case "bill_updated":
                 processBillUpdated(event, user, org, payload);
+                break;
+            case "bill_paid":
+                processBillPaid(event, user, org, payload);
                 break;
             default:
                 log.warn("Unknown event type: {}", event.getEventType());
@@ -959,6 +963,116 @@ public class SyncService {
 
         billRepository.save(bill);
         log.info("Bill {} updated via sync (isPaid={})", billId, bill.getIsPaid());
+    }
+
+    /**
+     * Process bill_paid event — single event that creates bill + marks paid.
+     * Combines bill_created + bill_updated into one atomic operation.
+     * targetEntity = billId (client-generated UUID).
+     */
+    @SuppressWarnings("unchecked")
+    private void processBillPaid(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
+        String billId = event.getTargetEntity();
+        String patientId = (String) payload.get("patientId");
+        String queueEntryId = (String) payload.get("queueEntryId");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
+        Number totalAmountNum = (Number) payload.get("totalAmount");
+        Number paidAtNum = (Number) payload.get("paidAt");
+
+        if (patientId == null || patientId.isBlank()) {
+            throw new IllegalArgumentException("patientId is required in bill_paid payload");
+        }
+
+        // Idempotent — if bill already exists, skip
+        if (billRepository.findByUuid(billId).isPresent()) {
+            log.info("Bill {} already exists, skipping", billId);
+            return;
+        }
+
+        // Find and validate patient
+        Patient patient = patientRepository.findByUuid(patientId)
+                .orElseThrow(() -> new ResourceNotFoundException("Patient", patientId));
+        if (!patient.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("Patient", patientId);
+        }
+
+        // Find queue entry if provided
+        QueueEntry queueEntry = null;
+        if (queueEntryId != null) {
+            queueEntry = queueEntryRepository.findByUuid(queueEntryId).orElse(null);
+            if (queueEntry != null && !queueEntry.getQueue().getOrganization().getId().equals(org.getId())) {
+                queueEntry = null;
+            }
+        }
+
+        // Find creator member
+        OrgMember createdBy = orgMemberRepository.findByOrgIdAndUserUuid(org.getId(), user.getUuid())
+                .orElseThrow(() -> new ResourceNotFoundException("Member", user.getUuid()));
+
+        // Calculate total
+        int totalAmount = 0;
+        if (totalAmountNum != null) {
+            totalAmount = totalAmountNum.intValue();
+        } else if (items != null) {
+            for (Map<String, Object> item : items) {
+                Number amt = (Number) item.get("amount");
+                if (amt != null) totalAmount += amt.intValue();
+            }
+        }
+
+        // Get doctor name and token from queue entry
+        String doctorName = null;
+        Integer tokenNumber = null;
+        if (queueEntry != null) {
+            doctorName = queueEntry.getQueue().getDoctor().getUser().getName();
+            tokenNumber = queueEntry.getTokenNumber();
+        }
+
+        // Determine paidAt timestamp
+        long paidMs = paidAtNum != null ? paidAtNum.longValue()
+                : (event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
+
+        // Create bill — already marked as PAID
+        Bill bill = Bill.builder()
+                .organization(org)
+                .patient(patient)
+                .queueEntryId(queueEntry != null ? queueEntry.getId() : null)
+                .totalAmount(java.math.BigDecimal.valueOf(totalAmount))
+                .isPaid(true)
+                .paidAt(java.time.Instant.ofEpochMilli(paidMs))
+                .patientName(patient.getName())
+                .patientPhone(patient.getPhone())
+                .tokenNumber(tokenNumber)
+                .doctorName(doctorName)
+                .createdBy(createdBy)
+                .build();
+        bill.setUuid(billId);
+        billRepository.save(bill);
+
+        // Create bill items
+        if (items != null) {
+            int sortOrder = 0;
+            for (Map<String, Object> itemData : items) {
+                String name = (String) itemData.get("name");
+                Number amount = (Number) itemData.get("amount");
+                BillItem billItem = BillItem.builder()
+                        .bill(bill)
+                        .name(name != null ? name : "Item")
+                        .amount(java.math.BigDecimal.valueOf(amount != null ? amount.intValue() : 0))
+                        .sortOrder(sortOrder++)
+                        .build();
+                billItemRepository.save(billItem);
+            }
+        }
+
+        // Mark queue entry as billed
+        if (queueEntry != null) {
+            queueEntry.setIsBilled(true);
+            queueEntry.setBill(bill);
+            queueEntryRepository.save(queueEntry);
+        }
+
+        log.info("Bill {} created+paid via sync for patient {} (total: {})", billId, patientId, totalAmount);
     }
 
     @SuppressWarnings("unchecked")
