@@ -43,6 +43,8 @@ public class SyncService {
     private final QueueEntryRepository queueEntryRepository;
     private final PatientRepository patientRepository;
     private final VisitRepository visitRepository;
+    private final BillRepository billRepository;
+    private final BillItemRepository billItemRepository;
     private final ObjectMapper objectMapper;
 
     // Valid state transitions: current state → allowed next states
@@ -293,12 +295,10 @@ public class SyncService {
                 processVisitSaved(event, user, org, payload);
                 break;
             case "bill_created":
-                log.debug("Processing bill_created for {}", event.getTargetEntity());
-                // TODO: Implement bill processing
+                processBillCreated(event, user, org, payload);
                 break;
             case "bill_updated":
-                log.debug("Processing bill_updated for {}", event.getTargetEntity());
-                // TODO: Implement bill update processing
+                processBillUpdated(event, user, org, payload);
                 break;
             default:
                 log.warn("Unknown event type: {}", event.getEventType());
@@ -753,6 +753,152 @@ public class SyncService {
 
             log.info("Visit {} created via sync for patient {} by user {}", visitId, patientId, user.getUuid());
         }
+    }
+
+    /**
+     * Process bill_created event.
+     * Creates a new bill with items for a patient's queue entry.
+     * targetEntity = billId (client-generated UUID).
+     */
+    @SuppressWarnings("unchecked")
+    private void processBillCreated(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
+        String billId = event.getTargetEntity();
+        String patientId = (String) payload.get("patientId");
+        String queueEntryId = (String) payload.get("queueEntryId");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
+        Number totalAmountNum = (Number) payload.get("totalAmount");
+        Boolean sendSMS = (Boolean) payload.get("sendSMS");
+
+        if (patientId == null || patientId.isBlank()) {
+            throw new IllegalArgumentException("patientId is required in bill_created payload");
+        }
+
+        // Check if bill already exists (idempotent)
+        if (billRepository.findByUuid(billId).isPresent()) {
+            log.info("Bill {} already exists, skipping", billId);
+            return;
+        }
+
+        // Find and validate patient
+        Patient patient = patientRepository.findByUuid(patientId)
+                .orElseThrow(() -> new ResourceNotFoundException("Patient", patientId));
+        if (!patient.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("Patient", patientId);
+        }
+
+        // Find queue entry if provided, validate org
+        QueueEntry queueEntry = null;
+        if (queueEntryId != null) {
+            queueEntry = queueEntryRepository.findByUuid(queueEntryId).orElse(null);
+            if (queueEntry != null && !queueEntry.getQueue().getOrganization().getId().equals(org.getId())) {
+                queueEntry = null;
+            }
+        }
+
+        // Find creator member
+        OrgMember createdBy = orgMemberRepository.findByOrgIdAndUserUuid(org.getId(), user.getUuid())
+                .orElseThrow(() -> new ResourceNotFoundException("Member", user.getUuid()));
+
+        // Calculate total from items if not provided
+        int totalAmount = 0;
+        if (totalAmountNum != null) {
+            totalAmount = totalAmountNum.intValue();
+        } else if (items != null) {
+            for (Map<String, Object> item : items) {
+                Number amt = (Number) item.get("amount");
+                if (amt != null) totalAmount += amt.intValue();
+            }
+        }
+
+        // Get doctor name and token from queue entry
+        String doctorName = null;
+        Integer tokenNumber = null;
+        if (queueEntry != null) {
+            doctorName = queueEntry.getQueue().getDoctor().getUser().getName();
+            tokenNumber = queueEntry.getTokenNumber();
+        }
+
+        // Create bill
+        Bill bill = Bill.builder()
+                .organization(org)
+                .patient(patient)
+                .queueEntryId(queueEntry != null ? queueEntry.getId() : null)
+                .totalAmount(java.math.BigDecimal.valueOf(totalAmount))
+                .isPaid(false)
+                .patientName(patient.getName())
+                .patientPhone(patient.getPhone())
+                .tokenNumber(tokenNumber)
+                .doctorName(doctorName)
+                .createdBy(createdBy)
+                .build();
+        bill.setUuid(billId);
+        billRepository.save(bill);
+
+        // Create bill items
+        if (items != null) {
+            int sortOrder = 0;
+            for (Map<String, Object> itemData : items) {
+                String name = (String) itemData.get("name");
+                Number amount = (Number) itemData.get("amount");
+                BillItem billItem = BillItem.builder()
+                        .bill(bill)
+                        .name(name != null ? name : "Item")
+                        .amount(java.math.BigDecimal.valueOf(amount != null ? amount.intValue() : 0))
+                        .sortOrder(sortOrder++)
+                        .build();
+                billItemRepository.save(billItem);
+            }
+        }
+
+        // Mark queue entry as billed
+        if (queueEntry != null) {
+            queueEntry.setIsBilled(true);
+            queueEntry.setBill(bill);
+            queueEntryRepository.save(queueEntry);
+        }
+
+        log.info("Bill {} created via sync for patient {} (total: {})", billId, patientId, totalAmount);
+
+        if (Boolean.TRUE.equals(sendSMS)) {
+            log.info("SMS bill notification requested for bill {}", billId);
+        }
+    }
+
+    /**
+     * Process bill_updated event.
+     * Currently only supports marking a bill as paid.
+     * targetEntity = billId.
+     */
+    private void processBillUpdated(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
+        String billId = event.getTargetEntity();
+
+        Bill bill = billRepository.findByUuid(billId)
+                .orElseThrow(() -> new ResourceNotFoundException("Bill", billId));
+
+        // Validate org ownership
+        if (!bill.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("Bill", billId);
+        }
+
+        // Update paid status
+        Boolean isPaid = (Boolean) payload.get("isPaid");
+        if (Boolean.TRUE.equals(isPaid)) {
+            bill.setIsPaid(true);
+            // Use deviceTimestamp for paidAt (offline-correct)
+            long paidMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+            Number paidAtFromPayload = (Number) payload.get("paidAt");
+            if (paidAtFromPayload != null) {
+                bill.setPaidAt(java.time.Instant.ofEpochMilli(paidAtFromPayload.longValue()));
+            } else {
+                bill.setPaidAt(java.time.Instant.ofEpochMilli(paidMs));
+            }
+        } else if (Boolean.FALSE.equals(isPaid)) {
+            bill.setIsPaid(false);
+            bill.setPaidAt(null);
+        }
+
+        billRepository.save(bill);
+        log.info("Bill {} updated via sync (isPaid={})", billId, bill.getIsPaid());
     }
 
     @SuppressWarnings("unchecked")
