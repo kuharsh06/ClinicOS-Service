@@ -5,6 +5,7 @@ import com.clinicos.service.dto.response.SyncPullResponse;
 import com.clinicos.service.dto.response.SyncPushResponse;
 import com.clinicos.service.entity.*;
 import com.clinicos.service.enums.EventStatus;
+import com.clinicos.service.exception.ResourceNotFoundException;
 import com.clinicos.service.enums.Gender;
 import com.clinicos.service.enums.QueueEntryState;
 import com.clinicos.service.enums.QueueStatus;
@@ -41,6 +42,7 @@ public class SyncService {
     private final QueueRepository queueRepository;
     private final QueueEntryRepository queueEntryRepository;
     private final PatientRepository patientRepository;
+    private final VisitRepository visitRepository;
     private final ObjectMapper objectMapper;
 
     // Valid state transitions: current state → allowed next states
@@ -288,8 +290,7 @@ public class SyncService {
                 processStashImported(event, user, org, payload);
                 break;
             case "visit_saved":
-                log.debug("Processing visit_saved for {}", event.getTargetEntity());
-                // TODO: Implement visit processing
+                processVisitSaved(event, user, org, payload);
                 break;
             case "bill_created":
                 log.debug("Processing bill_created for {}", event.getTargetEntity());
@@ -655,6 +656,102 @@ public class SyncService {
             }
 
             log.info("Stash imported: {} entries to queue {}", importedEntryIds.size(), newQueueId);
+        }
+    }
+
+    /**
+     * Process visit_saved event.
+     * Creates or updates a visit record for a patient.
+     * targetEntity = patientId, payload.visitId = visit UUID.
+     */
+    @SuppressWarnings("unchecked")
+    private void processVisitSaved(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
+        String patientId = event.getTargetEntity();
+        String visitId = (String) payload.get("visitId");
+        if (visitId == null || visitId.isBlank()) {
+            throw new IllegalArgumentException("visitId is required in visit_saved payload");
+        }
+        String queueEntryId = (String) payload.get("queueEntryId");
+        List<String> complaintTags = (List<String>) payload.get("complaintTags");
+        Map<String, Object> data = (Map<String, Object>) payload.get("data");
+        Integer schemaVersion = payload.get("schemaVersion") != null ? (Integer) payload.get("schemaVersion") : 1;
+
+        // Find patient and validate org ownership
+        Patient patient = patientRepository.findByUuid(patientId)
+                .orElseThrow(() -> new ResourceNotFoundException("Patient", patientId));
+        if (!patient.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("Patient", patientId);
+        }
+
+        // Find the doctor member who created the visit
+        OrgMember createdBy = orgMemberRepository.findByOrgIdAndUserUuid(org.getId(), user.getUuid())
+                .orElseThrow(() -> new ResourceNotFoundException("Member", user.getUuid()));
+
+        // Find queue entry if provided, validate org ownership
+        QueueEntry queueEntry = null;
+        if (queueEntryId != null) {
+            queueEntry = queueEntryRepository.findByUuid(queueEntryId).orElse(null);
+            if (queueEntry != null && !queueEntry.getQueue().getOrganization().getId().equals(org.getId())) {
+                queueEntry = null; // silently ignore cross-org entry
+            }
+        }
+
+        // Derive visit date from device timestamp (offline-correct)
+        long visitMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+        java.time.LocalDate visitDate = java.time.Instant.ofEpochMilli(visitMs)
+                .atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate();
+
+        // Check if visit already exists (update case)
+        Visit existingVisit = visitRepository.findByUuid(visitId).orElse(null);
+
+        if (existingVisit != null) {
+            // Validate org ownership on update
+            if (!existingVisit.getOrganization().getId().equals(org.getId())) {
+                throw new ResourceNotFoundException("Visit", visitId);
+            }
+            // Validate visit belongs to the target patient
+            if (!existingVisit.getPatient().getUuid().equals(patientId)) {
+                throw new IllegalArgumentException("Visit " + visitId + " does not belong to patient " + patientId);
+            }
+
+            // Update existing visit
+            if (complaintTags != null) {
+                existingVisit.setComplaintTags(toJson(complaintTags));
+            }
+            if (data != null) {
+                existingVisit.setData(toJson(data));
+            }
+            existingVisit.setSchemaVersion(schemaVersion);
+            visitRepository.save(existingVisit);
+
+            log.info("Visit {} updated via sync for patient {}", visitId, patientId);
+        } else {
+            // Create new visit
+            Visit visit = Visit.builder()
+                    .patient(patient)
+                    .organization(org)
+                    .queueEntry(queueEntry)
+                    .visitDate(visitDate)
+                    .complaintTags(complaintTags != null ? toJson(complaintTags) : null)
+                    .data(data != null ? toJson(data) : null)
+                    .schemaVersion(schemaVersion)
+                    .createdBy(createdBy)
+                    .build();
+            visit.setUuid(visitId);
+            visitRepository.save(visit);
+
+            // Update patient stats
+            patient.setTotalVisits(patient.getTotalVisits() + 1);
+            patient.setLastVisitDate(visitDate);
+            if (complaintTags != null && !complaintTags.isEmpty()) {
+                patient.setLastComplaintTags(toJson(complaintTags));
+            }
+            if (patient.getTotalVisits() > 3) {
+                patient.setIsRegular(true);
+            }
+            patientRepository.save(patient);
+
+            log.info("Visit {} created via sync for patient {} by user {}", visitId, patientId, user.getUuid());
         }
     }
 

@@ -96,6 +96,88 @@ Previously, `org` was set to null and passed into handlers that would NullPointe
 
 ---
 
+### 6. visit_saved handler — security & exception fixes
+
+**Commit:** (pending)
+
+Four issues found in the `processVisitSaved` handler:
+
+**6a. Cross-org patient validation missing (SECURITY)**
+
+Patient is looked up by UUID but never validated against the current org. A doctor from Org A could create a visit for a patient belonging to Org B.
+
+```java
+// Before: no org check
+Patient patient = patientRepository.findByUuid(patientId).orElseThrow(...);
+
+// After: validate org ownership
+Patient patient = patientRepository.findByUuid(patientId).orElseThrow(...);
+if (!patient.getOrganization().getId().equals(org.getId())) {
+    throw new ResourceNotFoundException("Patient", patientId);
+}
+```
+
+**6b. Cross-org queue entry validation missing (SECURITY)**
+
+Queue entry looked up by UUID without org ownership check. Could link a visit to a queue entry from another org.
+
+```java
+// Before: no org check
+queueEntry = queueEntryRepository.findByUuid(queueEntryId).orElse(null);
+
+// After: validate org ownership
+queueEntry = queueEntryRepository.findByUuid(queueEntryId).orElse(null);
+if (queueEntry != null && !queueEntry.getQueue().getOrganization().getId().equals(org.getId())) {
+    queueEntry = null; // silently ignore cross-org entry
+}
+```
+
+**6c. Cross-org visit update validation missing (SECURITY)**
+
+On update path, existing visit found by UUID without checking it belongs to the current org.
+
+```java
+// Before: no org check
+Visit existingVisit = visitRepository.findByUuid(visitId).orElse(null);
+if (existingVisit != null) { existingVisit.setData(...); }
+
+// After: validate org ownership
+if (existingVisit != null && !existingVisit.getOrganization().getId().equals(org.getId())) {
+    throw new ResourceNotFoundException("Visit", visitId);
+}
+```
+
+**6d. Cross-patient visit update (SECURITY)**
+
+On update path, the visit's patient was not validated against `targetEntity`. A doctor could target patient B but update a visit belonging to patient A by sending patient A's visitId.
+
+```java
+// After: validate visit belongs to target patient
+if (!existingVisit.getPatient().getUuid().equals(patientId)) {
+    throw new IllegalArgumentException("Visit does not belong to patient");
+}
+```
+
+**6e. Missing visitId validation**
+
+When `visitId` is null or blank, the code would create a ghost visit with a random UUID that the client can never reference. Added early validation.
+
+**6f. RuntimeException instead of typed exceptions**
+
+All `orElseThrow` calls use `RuntimeException` with generic messages. Changed to `ResourceNotFoundException` for consistency and better debugging.
+
+---
+
+### Known Accepted Behaviors (visit_saved)
+
+| Item | Decision | Reason |
+|------|----------|--------|
+| Any doctor can update another doctor's visit | **Allowed** | Multi-doctor clinics may need this |
+| visitDate not updated on edit | **By design** | Visit date = when it happened, not last edit |
+| Patient lastComplaintTags not refreshed on update | **Skipped** | Low severity, minor UX stale data |
+
+---
+
 ## Medium Issues (Pending)
 
 ### M1. `userRoles` always empty in sync pull response
