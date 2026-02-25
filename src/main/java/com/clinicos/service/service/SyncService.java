@@ -47,11 +47,13 @@ public class SyncService {
     private final BillItemRepository billItemRepository;
     private final ObjectMapper objectMapper;
 
-    // Valid state transitions: current state → allowed next states
+    // Valid state transitions per API contract v3.1 §12.2
+    // States: waiting, now_serving (CALLED), completed, removed, stashed
+    // step_out: now_serving → waiting (not a separate state)
+    // patient_removed: only from waiting (not from now_serving)
     private static final Map<QueueEntryState, Set<QueueEntryState>> VALID_TRANSITIONS = Map.of(
-            QueueEntryState.WAITING, Set.of(QueueEntryState.CALLED, QueueEntryState.REMOVED, QueueEntryState.STASHED, QueueEntryState.STEPPED_OUT),
-            QueueEntryState.CALLED, Set.of(QueueEntryState.COMPLETED, QueueEntryState.REMOVED, QueueEntryState.STEPPED_OUT),
-            QueueEntryState.STEPPED_OUT, Set.of(QueueEntryState.WAITING, QueueEntryState.REMOVED),
+            QueueEntryState.WAITING, Set.of(QueueEntryState.CALLED, QueueEntryState.REMOVED, QueueEntryState.STASHED),
+            QueueEntryState.CALLED, Set.of(QueueEntryState.COMPLETED, QueueEntryState.WAITING),
             QueueEntryState.STASHED, Set.of(QueueEntryState.WAITING, QueueEntryState.REMOVED),
             QueueEntryState.COMPLETED, Set.of(),
             QueueEntryState.REMOVED, Set.of()
@@ -452,7 +454,9 @@ public class SyncService {
     }
 
     /**
-     * Process step_out event - patient stepped out temporarily.
+     * Process step_out event — patient stepped out, goes to end of waiting queue.
+     * Per contract: now_serving → waiting (step_out is an action, not a state)
+     * Patient goes to the END of the queue, not their original position.
      */
     private void processStepOut(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
         String entryId = event.getTargetEntity();
@@ -461,13 +465,24 @@ public class SyncService {
         QueueEntry entry = queueEntryRepository.findByUuid(entryId)
                 .orElseThrow(() -> new RuntimeException("Queue entry not found: " + entryId));
 
-        guardStateTransition(entry, QueueEntryState.STEPPED_OUT);
-        entry.setState(QueueEntryState.STEPPED_OUT);
+        guardStateTransition(entry, QueueEntryState.WAITING);
+
+        // Calculate end-of-queue position
+        List<QueueEntry> allEntries = queueEntryRepository.findByQueueIdOrderByPositionAsc(entry.getQueue().getId());
+        int maxPosition = allEntries.stream()
+                .filter(e -> e.getState() == QueueEntryState.WAITING)
+                .mapToInt(e -> e.getPosition() != null ? e.getPosition() : 0)
+                .max()
+                .orElse(0);
+
+        entry.setState(QueueEntryState.WAITING);
+        entry.setPosition(maxPosition + 1); // end of queue
         entry.setStepOutReason(reason);
         entry.setSteppedOutAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
+        entry.setCalledAt(null); // reset called timestamp
         queueEntryRepository.save(entry);
 
-        log.info("Patient stepped out: entry={}", entryId);
+        log.info("Patient stepped out, moved to end of waiting queue (position {}): entry={}", maxPosition + 1, entryId);
     }
 
     /**
@@ -505,6 +520,15 @@ public class SyncService {
         Queue queue = queueRepository.findByUuid(queueId)
                 .orElseThrow(() -> new RuntimeException("Queue not found: " + queueId));
 
+        // Guard: only ACTIVE queues can be paused
+        if (queue.getStatus() == QueueStatus.ENDED) {
+            throw new IllegalStateException("Cannot pause an ENDED queue: " + queueId);
+        }
+        if (queue.getStatus() == QueueStatus.PAUSED) {
+            log.info("Queue {} already paused, ignoring", queueId);
+            return;
+        }
+
         queue.setStatus(QueueStatus.PAUSED);
         queue.setPauseStartTime(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
         queueRepository.save(queue);
@@ -520,6 +544,15 @@ public class SyncService {
 
         Queue queue = queueRepository.findByUuid(queueId)
                 .orElseThrow(() -> new RuntimeException("Queue not found: " + queueId));
+
+        // Guard: only PAUSED queues can be resumed
+        if (queue.getStatus() == QueueStatus.ENDED) {
+            throw new IllegalStateException("Cannot resume an ENDED queue: " + queueId);
+        }
+        if (queue.getStatus() == QueueStatus.ACTIVE) {
+            log.info("Queue {} already active, ignoring", queueId);
+            return;
+        }
 
         // Calculate paused duration using device timestamp (offline-correct)
         if (queue.getPauseStartTime() != null) {
@@ -549,12 +582,29 @@ public class SyncService {
         Queue queue = queueRepository.findByUuid(queueId)
                 .orElseThrow(() -> new RuntimeException("Queue not found: " + queueId));
 
+        // Guard: already ended queues are no-op
+        if (queue.getStatus() == QueueStatus.ENDED) {
+            log.info("Queue {} already ended, ignoring", queueId);
+            return;
+        }
+
         // End the queue
         queue.setStatus(QueueStatus.ENDED);
         // Use device timestamp for accurate end time (offline-correct)
         long endedMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
         queue.setEndedAt(Instant.ofEpochMilli(endedMs));
         queueRepository.save(queue);
+
+        // Auto-complete any currently serving (CALLED) patients per contract
+        List<QueueEntry> allEntries = queueEntryRepository.findByQueueIdOrderByPositionAsc(queue.getId());
+        for (QueueEntry entry : allEntries) {
+            if (entry.getState() == QueueEntryState.CALLED) {
+                entry.setState(QueueEntryState.COMPLETED);
+                entry.setCompletedAt(endedMs);
+                queueEntryRepository.save(entry);
+                log.info("Auto-completed now_serving entry {} on queue end", entry.getUuid());
+            }
+        }
 
         // Stash specified entries
         if (stashedEntryIds != null && !stashedEntryIds.isEmpty()) {

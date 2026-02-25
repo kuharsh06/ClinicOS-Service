@@ -2,12 +2,10 @@ package com.clinicos.service.enums;
 
 public enum QueueEntryState {
     WAITING("waiting"),
-    CALLED("called"),
-    IN_CONSULTATION("in_consultation"),
+    CALLED("now_serving"),
     COMPLETED("completed"),
     REMOVED("removed"),
-    STASHED("stashed"),
-    STEPPED_OUT("stepped_out");
+    STASHED("stashed");
 
     private final String value;
 
