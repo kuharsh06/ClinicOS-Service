@@ -2,6 +2,7 @@ package com.clinicos.service.controller;
 
 import com.clinicos.service.dto.request.CreateBillRequest;
 import com.clinicos.service.dto.request.CreateBillTemplateRequest;
+import com.clinicos.service.dto.request.UpdateBillTemplateRequest;
 import com.clinicos.service.dto.response.ApiResponse;
 import com.clinicos.service.dto.response.BillListResponse;
 import com.clinicos.service.dto.response.BillResponse;
@@ -108,5 +109,34 @@ public class BillingController {
 
         BillTemplatesResponse.BillTemplateDto template = billingService.createBillTemplate(orgId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(template));
+    }
+
+    /**
+     * Update a bill template.
+     * PUT /v1/orgs/:orgId/bill-templates/:templateId
+     */
+    @PutMapping("/bill-templates/{templateId}")
+    @RequirePermission("billing:manage_templates")
+    public ResponseEntity<ApiResponse<BillTemplatesResponse.BillTemplateDto>> updateBillTemplate(
+            @PathVariable String orgId,
+            @PathVariable String templateId,
+            @RequestBody @Valid UpdateBillTemplateRequest request) {
+
+        BillTemplatesResponse.BillTemplateDto template = billingService.updateBillTemplate(orgId, templateId, request);
+        return ResponseEntity.ok(ApiResponse.success(template));
+    }
+
+    /**
+     * Deactivate a bill template.
+     * DELETE /v1/orgs/:orgId/bill-templates/:templateId
+     */
+    @DeleteMapping("/bill-templates/{templateId}")
+    @RequirePermission("billing:manage_templates")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> deleteBillTemplate(
+            @PathVariable String orgId,
+            @PathVariable String templateId) {
+
+        billingService.deleteBillTemplate(orgId, templateId);
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("message", "Template deactivated")));
     }
 }

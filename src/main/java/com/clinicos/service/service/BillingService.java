@@ -315,6 +315,59 @@ public class BillingService {
                 .build();
     }
 
+    /**
+     * Update a bill template.
+     */
+    @Transactional
+    public BillTemplatesResponse.BillTemplateDto updateBillTemplate(String orgUuid, String templateUuid,
+                                                                     com.clinicos.service.dto.request.UpdateBillTemplateRequest request) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        BillItemTemplate template = billItemTemplateRepository.findByUuid(templateUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("BillTemplate", templateUuid));
+
+        if (!template.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("BillTemplate", templateUuid);
+        }
+
+        if (request.getName() != null) template.setName(request.getName());
+        if (request.getDefaultAmount() != null) template.setDefaultAmount(BigDecimal.valueOf(request.getDefaultAmount()));
+        if (request.getIsDefault() != null) template.setIsDefault(request.getIsDefault());
+        if (request.getSortOrder() != null) template.setSortOrder(request.getSortOrder());
+
+        billItemTemplateRepository.save(template);
+        log.info("Bill template {} updated in org {}", templateUuid, orgUuid);
+
+        return BillTemplatesResponse.BillTemplateDto.builder()
+                .templateId(template.getUuid())
+                .name(template.getName())
+                .defaultAmount(template.getDefaultAmount().intValue())
+                .isDefault(template.getIsDefault())
+                .sortOrder(template.getSortOrder())
+                .build();
+    }
+
+    /**
+     * Soft-delete a bill template (set isActive = false).
+     */
+    @Transactional
+    public void deleteBillTemplate(String orgUuid, String templateUuid) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        BillItemTemplate template = billItemTemplateRepository.findByUuid(templateUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("BillTemplate", templateUuid));
+
+        if (!template.getOrganization().getId().equals(org.getId())) {
+            throw new ResourceNotFoundException("BillTemplate", templateUuid);
+        }
+
+        template.setIsActive(false);
+        billItemTemplateRepository.save(template);
+        log.info("Bill template {} deactivated in org {}", templateUuid, orgUuid);
+    }
+
     private BillResponse toBillResponse(Bill bill, List<BillItem> items, String clinicName) {
         List<BillResponse.BillItem> itemDtos = items.stream()
                 .map(item -> BillResponse.BillItem.builder()
