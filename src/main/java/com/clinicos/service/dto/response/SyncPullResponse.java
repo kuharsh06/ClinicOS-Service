@@ -29,6 +29,7 @@ public class SyncPullResponse {
         private String eventId;
         private String deviceId;
         private String userId;
+        private String orgId;
         private List<String> userRoles;
         private String eventType;
         private String targetEntity;

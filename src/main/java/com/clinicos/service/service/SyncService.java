@@ -1094,6 +1094,7 @@ public class SyncService {
                 .eventId(event.getUuid())
                 .deviceId(event.getDeviceId())
                 .userId(event.getUser().getUuid())
+                .orgId(event.getOrganization().getUuid())
                 .userRoles(userRoles)
                 .eventType(event.getEventType())
                 .targetEntity(event.getTargetEntityUuid())
