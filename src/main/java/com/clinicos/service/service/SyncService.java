@@ -438,12 +438,22 @@ public class SyncService {
 
     /**
      * Process call_now event - call patient for consultation.
+     * Only one patient can be now_serving at a time per queue.
      */
     private void processCallNow(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
         String entryId = event.getTargetEntity();
 
         QueueEntry entry = queueEntryRepository.findByUuid(entryId)
                 .orElseThrow(() -> new RuntimeException("Queue entry not found: " + entryId));
+
+        // Check if someone is already being served in this queue
+        List<QueueEntry> queueEntries = queueEntryRepository.findByQueueIdOrderByPositionAsc(entry.getQueue().getId());
+        boolean hasNowServing = queueEntries.stream()
+                .anyMatch(e -> e.getState() == QueueEntryState.CALLED && !e.getId().equals(entry.getId()));
+
+        if (hasNowServing) {
+            throw new IllegalStateException("Cannot call patient — another patient is already being served in this queue");
+        }
 
         guardStateTransition(entry, QueueEntryState.CALLED);
         entry.setState(QueueEntryState.CALLED);
