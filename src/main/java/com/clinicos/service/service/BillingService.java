@@ -197,9 +197,13 @@ public class BillingService {
         } else {
             summary = billRepository.getBillSummaryByOrg(org.getId());
         }
-        long billCount = ((Number) summary[0]).longValue();
-        int totalBilled = ((Number) summary[1]).intValue();
-        int totalPaid = ((Number) summary[2]).intValue();
+        // Hibernate may return nested Object[] — unwrap if needed
+        if (summary != null && summary.length > 0 && summary[0] instanceof Object[]) {
+            summary = (Object[]) summary[0];
+        }
+        long billCount = summary != null && summary[0] != null ? ((Number) summary[0]).longValue() : 0;
+        int totalBilled = summary != null && summary[1] != null ? ((Number) summary[1]).intValue() : 0;
+        int totalPaid = summary != null && summary[2] != null ? ((Number) summary[2]).intValue() : 0;
         int totalUnpaid = totalBilled - totalPaid;
 
         // Paginated list query (only loads current page)
@@ -209,15 +213,42 @@ public class BillingService {
         boolean hasPaidFilter = "paid".equalsIgnoreCase(status) || "unpaid".equalsIgnoreCase(status);
         boolean isPaidFilter = "paid".equalsIgnoreCase(status);
 
-        if (startOfDay != null && hasPaidFilter) {
-            bills = billRepository.findByOrgAndDateRangeAndPaidStatusPaginated(
-                    org.getId(), startOfDay, endOfDay, isPaidFilter, page);
-        } else if (startOfDay != null) {
-            bills = billRepository.findByOrgAndDateRangePaginated(org.getId(), startOfDay, endOfDay, page);
-        } else if (hasPaidFilter) {
-            bills = billRepository.findByOrgIdAndPaidStatusOrderByCreatedDesc(org.getId(), isPaidFilter, page);
+        // Decode cursor to get the bill ID for keyset pagination
+        Integer cursorId = null;
+        if (afterCursor != null && !afterCursor.isEmpty()) {
+            String cursorUuid = decodeCursor(afterCursor);
+            if (cursorUuid != null) {
+                Bill cursorBill = billRepository.findByUuid(cursorUuid).orElse(null);
+                if (cursorBill != null) {
+                    cursorId = cursorBill.getId();
+                }
+            }
+        }
+
+        if (cursorId != null) {
+            if (startOfDay != null && hasPaidFilter) {
+                bills = billRepository.findByOrgAndDateRangeAndPaidStatusAfterCursorPaginated(
+                        org.getId(), startOfDay, endOfDay, isPaidFilter, cursorId, page);
+            } else if (startOfDay != null) {
+                bills = billRepository.findByOrgAndDateRangeAfterCursorPaginated(
+                        org.getId(), startOfDay, endOfDay, cursorId, page);
+            } else if (hasPaidFilter) {
+                bills = billRepository.findByOrgIdAndPaidStatusAfterCursorOrderByCreatedDesc(
+                        org.getId(), isPaidFilter, cursorId, page);
+            } else {
+                bills = billRepository.findByOrgIdAfterCursorOrderByCreatedDesc(org.getId(), cursorId, page);
+            }
         } else {
-            bills = billRepository.findByOrgIdOrderByCreatedDesc(org.getId(), page);
+            if (startOfDay != null && hasPaidFilter) {
+                bills = billRepository.findByOrgAndDateRangeAndPaidStatusPaginated(
+                        org.getId(), startOfDay, endOfDay, isPaidFilter, page);
+            } else if (startOfDay != null) {
+                bills = billRepository.findByOrgAndDateRangePaginated(org.getId(), startOfDay, endOfDay, page);
+            } else if (hasPaidFilter) {
+                bills = billRepository.findByOrgIdAndPaidStatusOrderByCreatedDesc(org.getId(), isPaidFilter, page);
+            } else {
+                bills = billRepository.findByOrgIdOrderByCreatedDesc(org.getId(), page);
+            }
         }
 
         boolean hasMore = bills.size() > actualLimit;

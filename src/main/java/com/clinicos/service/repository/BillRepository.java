@@ -31,7 +31,7 @@ public interface BillRepository extends JpaRepository<Bill, Integer> {
     @Query("SELECT SUM(b.totalAmount) FROM Bill b WHERE b.organization.id = :orgId AND b.isPaid = true AND b.createdAt BETWEEN :start AND :end")
     BigDecimal sumPaidAmountByOrgAndDateRange(@Param("orgId") Integer orgId, @Param("start") Instant start, @Param("end") Instant end);
 
-    // --- Paginated list queries ---
+    // --- Paginated list queries (first page) ---
 
     @Query("SELECT b FROM Bill b WHERE b.organization.id = :orgId ORDER BY b.createdAt DESC")
     List<Bill> findByOrgIdOrderByCreatedDesc(@Param("orgId") Integer orgId, Pageable pageable);
@@ -48,6 +48,26 @@ public interface BillRepository extends JpaRepository<Bill, Integer> {
     List<Bill> findByOrgAndDateRangeAndPaidStatusPaginated(
             @Param("orgId") Integer orgId, @Param("start") Instant start, @Param("end") Instant end,
             @Param("isPaid") boolean isPaid, Pageable pageable);
+
+    // --- Paginated list queries (cursor-based, after a specific bill) ---
+
+    @Query("SELECT b FROM Bill b WHERE b.organization.id = :orgId AND b.id < :cursorId ORDER BY b.createdAt DESC")
+    List<Bill> findByOrgIdAfterCursorOrderByCreatedDesc(
+            @Param("orgId") Integer orgId, @Param("cursorId") Integer cursorId, Pageable pageable);
+
+    @Query("SELECT b FROM Bill b WHERE b.organization.id = :orgId AND b.isPaid = :isPaid AND b.id < :cursorId ORDER BY b.createdAt DESC")
+    List<Bill> findByOrgIdAndPaidStatusAfterCursorOrderByCreatedDesc(
+            @Param("orgId") Integer orgId, @Param("isPaid") boolean isPaid, @Param("cursorId") Integer cursorId, Pageable pageable);
+
+    @Query("SELECT b FROM Bill b WHERE b.organization.id = :orgId AND b.createdAt BETWEEN :start AND :end AND b.id < :cursorId ORDER BY b.createdAt DESC")
+    List<Bill> findByOrgAndDateRangeAfterCursorPaginated(
+            @Param("orgId") Integer orgId, @Param("start") Instant start, @Param("end") Instant end,
+            @Param("cursorId") Integer cursorId, Pageable pageable);
+
+    @Query("SELECT b FROM Bill b WHERE b.organization.id = :orgId AND b.createdAt BETWEEN :start AND :end AND b.isPaid = :isPaid AND b.id < :cursorId ORDER BY b.createdAt DESC")
+    List<Bill> findByOrgAndDateRangeAndPaidStatusAfterCursorPaginated(
+            @Param("orgId") Integer orgId, @Param("start") Instant start, @Param("end") Instant end,
+            @Param("isPaid") boolean isPaid, @Param("cursorId") Integer cursorId, Pageable pageable);
 
     // --- Aggregate queries for summary (no data loaded into memory) ---
 
