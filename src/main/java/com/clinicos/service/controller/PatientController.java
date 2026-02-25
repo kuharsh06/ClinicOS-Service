@@ -75,7 +75,7 @@ public class PatientController {
      * POST /v1/orgs/:orgId/patients/:patientId/visits
      */
     @PostMapping("/patients/{patientId}/visits")
-    @RequirePermission("patient:add_notes")
+    @RequirePermission("visit:create")
     public ResponseEntity<ApiResponse<PatientThreadResponse.VisitDto>> createVisit(
             @PathVariable String orgId,
             @PathVariable String patientId,
@@ -92,7 +92,7 @@ public class PatientController {
      * PUT /v1/orgs/:orgId/patients/:patientId/visits/:visitId
      */
     @PutMapping("/patients/{patientId}/visits/{visitId}")
-    @RequirePermission("patient:add_notes")
+    @RequirePermission("visit:update")
     public ResponseEntity<ApiResponse<PatientThreadResponse.VisitDto>> updateVisit(
             @PathVariable String orgId,
             @PathVariable String patientId,

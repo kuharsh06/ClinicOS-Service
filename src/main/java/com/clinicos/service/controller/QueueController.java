@@ -41,7 +41,7 @@ public class QueueController {
      * GET /v1/orgs/:orgId/patients/lookup?phone=<10digits>
      */
     @GetMapping("/patients/lookup")
-    @RequirePermission("queue:add_patient")
+    @RequirePermission("queue:manage")
     public ResponseEntity<ApiResponse<PatientLookupResponse>> lookupPatient(
             @PathVariable String orgId,
             @RequestParam String phone) {
@@ -55,7 +55,7 @@ public class QueueController {
      * POST /v1/orgs/:orgId/queues/:queueId/end
      */
     @PostMapping("/queues/{queueId}/end")
-    @RequirePermission("queue:end")
+    @RequirePermission("queue:manage")
     public ResponseEntity<ApiResponse<Map<String, Object>>> endQueue(
             @PathVariable String orgId,
             @PathVariable String queueId,
@@ -70,7 +70,7 @@ public class QueueController {
      * POST /v1/orgs/:orgId/queues/:queueId/import-stash
      */
     @PostMapping("/queues/{queueId}/import-stash")
-    @RequirePermission("queue:import_stash")
+    @RequirePermission("queue:manage")
     public ResponseEntity<ApiResponse<Map<String, Object>>> importStash(
             @PathVariable String orgId,
             @PathVariable String queueId,

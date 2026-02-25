@@ -24,7 +24,7 @@ public class MemberController {
 
     @PostMapping
     @Operation(summary = "Add Member", description = "Add a new member to the organization")
-    @RequirePermission("settings:manage_team")
+    @RequirePermission("members:add")
     public ResponseEntity<ApiResponse<AddMemberResponse>> addMember(
             @PathVariable String orgId,
             @Valid @RequestBody AddMemberRequest request) {
@@ -35,7 +35,7 @@ public class MemberController {
 
     @GetMapping
     @Operation(summary = "List Members", description = "List all members of the organization")
-    @RequirePermission("settings:manage_team")
+    @RequirePermission("members:view")
     public ResponseEntity<ApiResponse<ListMembersResponse>> listMembers(
             @PathVariable String orgId) {
 
@@ -45,7 +45,7 @@ public class MemberController {
 
     @PutMapping("/{userId}")
     @Operation(summary = "Update Member", description = "Update member roles and status")
-    @RequirePermission("settings:manage_team")
+    @RequirePermission("members:update")
     public ResponseEntity<ApiResponse<OrgMemberResponse>> updateMember(
             @PathVariable String orgId,
             @PathVariable String userId,

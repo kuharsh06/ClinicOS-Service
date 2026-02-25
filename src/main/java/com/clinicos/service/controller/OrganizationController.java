@@ -44,7 +44,7 @@ public class OrganizationController {
 
     @GetMapping("/{orgId}")
     @Operation(summary = "Get Organization", description = "Get organization details")
-    @RequirePermission("settings:view")
+    @RequirePermission("org:view")
     public ResponseEntity<ApiResponse<OrganizationResponse>> getOrganization(
             @PathVariable String orgId) {
 
@@ -54,7 +54,7 @@ public class OrganizationController {
 
     @PutMapping("/{orgId}")
     @Operation(summary = "Update Organization", description = "Update organization details")
-    @RequirePermission("settings:edit_org")
+    @RequirePermission("org:update")
     public ResponseEntity<ApiResponse<OrganizationResponse>> updateOrganization(
             @PathVariable String orgId,
             @RequestBody Map<String, Object> updates) {
