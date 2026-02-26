@@ -50,7 +50,7 @@ Every event in the `events[]` array must have this structure:
 | `userRoles` | string[] | Yes | Informational only — server checks DB roles |
 | `eventType` | string | Yes | One of the 12 synced event types |
 | `targetEntity` | string (UUID) | Yes | Primary entity UUID (varies by event type) |
-| `targetTable` | string | Yes | `"queue_entry"` / `"queue"` / `"visit"` / `"billing"` |
+| `targetTable` | string | Yes | `"queue_entry"` / `"queue"` / `"visit"` / `"patient_thread"` / `"billing"` |
 | `payload` | object | Yes | Event-specific data |
 | `deviceTimestamp` | number | Yes | Epoch milliseconds when action happened |
 | `schemaVersion` | integer | Yes | Must be >= 1 |
@@ -60,6 +60,15 @@ Every event in the `events[]` array must have this structure:
 - `serverReceivedAt` — set by server
 - `synced` — client-side only
 - `doctorId` at envelope level — send inside payload where needed
+
+**CRITICAL — field names must match exactly:**
+- `eventType` — NOT `type`
+- `targetEntity` — NOT `target`
+- `targetTable` — NOT `table`
+- `deviceTimestamp` — NOT `timestamp`
+- `schemaVersion` at envelope level — NOT inside payload
+
+If any `@NotBlank` / `@NotNull` field is missing or empty, the server returns **HTTP 400** (Bad Request) — NOT a rejection in the response body. A 400 means the event never reached processing. Fix the envelope first.
 
 ---
 

@@ -1022,6 +1022,10 @@ public class SyncService {
             if (queueEntry != null && !queueEntry.getQueue().getOrganization().getId().equals(org.getId())) {
                 queueEntry = null;
             }
+            // Guard: prevent duplicate bills for the same queue entry (multi-device race)
+            if (queueEntry != null && billRepository.findByQueueEntryId(queueEntry.getId()).isPresent()) {
+                throw new IllegalArgumentException("Bill already exists for queue entry: " + queueEntryId);
+            }
         }
 
         // Find creator member
