@@ -331,16 +331,17 @@ public class PatientService {
         // Check org setting and user permission
         Map<String, Object> settings = fromJson(org.getSettings());
         String visibility = settings != null ? (String) settings.get("clinicalDataVisibility") : "all_members";
+        if (visibility == null) visibility = "all_members"; // default when not set
 
         if ("all_members".equals(visibility)) {
             return true;
         }
 
-        // Check if user has patient:view_full permission
+        // Check if user has patient:view_clinical permission (clinical data access)
         try {
             CustomUserDetails userDetails = (CustomUserDetails) SecurityContextHolder.getContext()
                     .getAuthentication().getPrincipal();
-            return userDetails.hasPermission("patient:view_full");
+            return userDetails.hasPermission("patient:view_clinical");
         } catch (Exception e) {
             return false;
         }

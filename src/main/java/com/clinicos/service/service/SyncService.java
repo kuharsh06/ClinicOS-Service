@@ -244,7 +244,7 @@ public class SyncService {
         }
 
         // Get user's permissions for clinical data redaction
-        boolean canViewFullClinical = userDetails.hasPermission("patient:view_full");
+        boolean canViewFullClinical = userDetails.hasPermission("patient:view_clinical");
 
         // Convert to DTOs
         List<SyncPullResponse.SyncEventDto> eventDtos = events.stream()
