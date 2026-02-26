@@ -360,6 +360,9 @@ public class SyncService {
 
         // Find or create queue
         Queue queue = queueRepository.findByUuid(queueId).orElse(null);
+        if (queue != null && queue.getStatus() == QueueStatus.ENDED) {
+            throw new IllegalStateException("Cannot add patient to an ENDED queue: " + queueId);
+        }
         if (queue == null) {
             // Find the doctor member
             OrgMember doctor = orgMemberRepository.findByOrganizationIdWithUser(org.getId())
@@ -367,6 +370,14 @@ public class SyncService {
                     .filter(m -> m.getUser().getUuid().equals(doctorId))
                     .findFirst()
                     .orElseThrow(() -> new RuntimeException("Doctor not found: " + doctorId));
+
+            // Check if doctor already has an active/paused queue — one doctor, one queue
+            List<Queue> existingActive = queueRepository.findByDoctorIdAndStatusIn(
+                    doctor.getId(), List.of(QueueStatus.ACTIVE, QueueStatus.PAUSED));
+            if (!existingActive.isEmpty()) {
+                throw new IllegalStateException("Doctor already has an active queue: " + existingActive.get(0).getUuid()
+                        + ". End it before starting a new one.");
+            }
 
             // Create new queue
             queue = Queue.builder()
@@ -659,6 +670,14 @@ public class SyncService {
         // Find or create the new queue
         Queue newQueue = queueRepository.findByUuid(newQueueId).orElse(null);
         if (newQueue == null) {
+            // Check if doctor already has an active/paused queue
+            List<Queue> existingActive = queueRepository.findByDoctorIdAndStatusIn(
+                    doctor.getId(), List.of(QueueStatus.ACTIVE, QueueStatus.PAUSED));
+            if (!existingActive.isEmpty()) {
+                throw new IllegalStateException("Doctor already has an active queue: " + existingActive.get(0).getUuid()
+                        + ". End it before importing stash.");
+            }
+
             newQueue = Queue.builder()
                     .organization(org)
                     .doctor(doctor)
