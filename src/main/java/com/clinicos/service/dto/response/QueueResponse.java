@@ -16,6 +16,7 @@ import java.util.List;
 public class QueueResponse {
 
     private QueueSnapshot queue;
+    private Long lastEventTimestamp;
     private List<QueueEntryFull> previousQueueStash;
 
     @Data
@@ -34,7 +35,6 @@ public class QueueResponse {
         private String createdAt;
         private String endedAt;
         private List<QueueEntryFull> entries;
-        private Long lastEventTimestamp;
     }
 
     @Data

@@ -42,6 +42,7 @@ public class QueueService {
     private final ComplaintTagRepository complaintTagRepository;
     private final OrganizationRepository organizationRepository;
     private final OrgMemberRepository orgMemberRepository;
+    private final EventStoreRepository eventStoreRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -68,8 +69,12 @@ public class QueueService {
         // Find stashed entries from most recently ended queue
         List<QueueResponse.QueueEntryFull> previousQueueStash = findPreviousQueueStash(doctor.getId());
 
+        // Get the actual latest applied event timestamp for this org
+        Long lastEventTs = eventStoreRepository.findLatestEventTimestamp(org.getId());
+
         return QueueResponse.builder()
                 .queue(queueSnapshot)
+                .lastEventTimestamp(lastEventTs)
                 .previousQueueStash(previousQueueStash)
                 .build();
     }
@@ -392,7 +397,6 @@ public class QueueService {
                 .createdAt(queue.getStartedAt().toString())
                 .endedAt(queue.getEndedAt() != null ? queue.getEndedAt().toString() : null)
                 .entries(entryDtos)
-                .lastEventTimestamp(System.currentTimeMillis())
                 .build();
     }
 

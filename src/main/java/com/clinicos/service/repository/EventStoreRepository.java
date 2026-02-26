@@ -23,6 +23,9 @@ public interface EventStoreRepository extends JpaRepository<EventStore, Integer>
 
     List<EventStore> findByUserIdOrderByDeviceTimestampDesc(Integer userId);
 
+    @Query("SELECT MAX(e.serverReceivedAt) FROM EventStore e WHERE e.organization.id = :orgId AND e.status = 'APPLIED'")
+    Long findLatestEventTimestamp(@Param("orgId") Integer orgId);
+
     @Query("SELECT e FROM EventStore e WHERE e.organization.id = :orgId " +
             "AND e.serverReceivedAt > :since " +
             "AND e.deviceId != :excludeDeviceId " +
