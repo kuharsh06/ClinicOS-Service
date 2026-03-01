@@ -31,6 +31,7 @@ public class PatientService {
 
     private final PatientRepository patientRepository;
     private final VisitRepository visitRepository;
+    private final VisitImageRepository visitImageRepository;
     private final OrganizationRepository organizationRepository;
     private final OrgMemberRepository orgMemberRepository;
     private final QueueEntryRepository queueEntryRepository;
@@ -132,8 +133,19 @@ public class PatientService {
         boolean hasMore = visits.size() > actualLimit;
         List<Visit> pageVisits = hasMore ? visits.subList(0, actualLimit) : visits;
 
+        // Batch-load images for all visits in one query (avoids N+1)
+        Map<Integer, List<VisitImage>> imagesByVisitId = Map.of();
+        if (canViewFull && !pageVisits.isEmpty()) {
+            List<Integer> visitIds = pageVisits.stream().map(Visit::getId).collect(Collectors.toList());
+            List<VisitImage> allImages = visitImageRepository.findByVisitIdInAndDeletedAtIsNullOrderBySortOrderAsc(visitIds);
+            imagesByVisitId = allImages.stream()
+                    .filter(img -> img.getVisit() != null)
+                    .collect(Collectors.groupingBy(img -> img.getVisit().getId()));
+        }
+        final Map<Integer, List<VisitImage>> imagesMap = imagesByVisitId;
+
         List<PatientThreadResponse.VisitDto> visitDtos = pageVisits.stream()
-                .map(v -> toVisitDto(v, canViewFull))
+                .map(v -> toVisitDto(v, canViewFull, imagesMap.getOrDefault(v.getId(), List.of())))
                 .collect(Collectors.toList());
 
         String nextCursor = hasMore && !pageVisits.isEmpty()
@@ -211,7 +223,7 @@ public class PatientService {
 
         log.info("Visit {} created for patient {} by user {}", visit.getUuid(), patientUuid, userId);
 
-        return toVisitDto(visit, true);
+        return toVisitDto(visit, true, visitImageRepository.findByVisitIdAndDeletedAtIsNullOrderBySortOrderAsc(visit.getId()));
     }
 
     /**
@@ -243,7 +255,7 @@ public class PatientService {
         visitRepository.save(visit);
         log.info("Visit {} updated", visitUuid);
 
-        return toVisitDto(visit, true);
+        return toVisitDto(visit, true, visitImageRepository.findByVisitIdAndDeletedAtIsNullOrderBySortOrderAsc(visit.getId()));
     }
 
     /**
@@ -295,13 +307,21 @@ public class PatientService {
                 .build();
     }
 
-    private PatientThreadResponse.VisitDto toVisitDto(Visit visit, boolean canViewFull) {
+    private PatientThreadResponse.VisitDto toVisitDto(Visit visit, boolean canViewFull, List<VisitImage> preloadedImages) {
         Map<String, Object> data = null;
         List<PatientThreadResponse.ImageRef> images = List.of();
 
         if (canViewFull) {
             data = fromJson(visit.getData());
-            // TODO: Parse images from data or separate storage
+            images = preloadedImages.stream()
+                    .map(img -> PatientThreadResponse.ImageRef.builder()
+                            .imageId(img.getUuid())
+                            .thumbnailUrl(img.getThumbnailUrl())
+                            .fullUrl(img.getImageUrl())
+                            .caption(img.getCaption())
+                            .uploadedAt(img.getCreatedAt() != null ? img.getCreatedAt().toString() : null)
+                            .build())
+                    .collect(Collectors.toList());
         }
 
         OrgMember creator = visit.getCreatedBy();
