@@ -72,11 +72,14 @@ public class ImageService {
         Organization org = organizationRepository.findByUuid(orgUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
 
-        // Validate patient belongs to org
-        Patient patient = patientRepository.findByUuid(patientUuid)
-                .orElseThrow(() -> new ResourceNotFoundException("Patient", patientUuid));
-        if (!patient.getOrganization().getId().equals(org.getId())) {
-            throw new ResourceNotFoundException("Patient", patientUuid);
+        // Validate patient if provided
+        Patient patient = null;
+        if (patientUuid != null && !patientUuid.isBlank()) {
+            patient = patientRepository.findByUuid(patientUuid)
+                    .orElseThrow(() -> new ResourceNotFoundException("Patient", patientUuid));
+            if (!patient.getOrganization().getId().equals(org.getId())) {
+                throw new ResourceNotFoundException("Patient", patientUuid);
+            }
         }
 
         // Validate visit if provided
@@ -99,7 +102,9 @@ public class ImageService {
 
         // Generate storage key
         String fileUuid = UUID.randomUUID().toString();
-        String storageKey = orgUuid + "/patients/" + patientUuid + "/" + fileUuid + "." + ext;
+        String storageKey = patient != null
+                ? orgUuid + "/patients/" + patientUuid + "/" + fileUuid + "." + ext
+                : orgUuid + "/general/" + fileUuid + "." + ext;
 
         try {
             // TODO: Optimize memory — stream to temp file instead of byte[] to avoid heap pressure
@@ -213,6 +218,46 @@ public class ImageService {
         List<VisitImage> images = cursorId != null
                 ? visitImageRepository.findByDoctorAndOrgAfterCursor(doctorUuid, org.getId(), cursorId, PageRequest.of(0, pageSize + 1))
                 : visitImageRepository.findByDoctorAndOrg(doctorUuid, org.getId(), PageRequest.of(0, pageSize + 1));
+
+        return toListResponse(images, pageSize);
+    }
+
+    @Transactional(readOnly = true)
+    public ImageListResponse listByOrg(String orgUuid, String fileType, String afterCursor, Integer limit) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        int pageSize = clampLimit(limit);
+        Integer cursorId = decodeCursor(afterCursor);
+
+        List<VisitImage> images;
+        if (fileType != null && !fileType.isBlank()) {
+            images = cursorId != null
+                    ? visitImageRepository.findByOrgAndFileTypeAfterCursor(org.getId(), fileType, cursorId, PageRequest.of(0, pageSize + 1))
+                    : visitImageRepository.findByOrgAndFileType(org.getId(), fileType, PageRequest.of(0, pageSize + 1));
+        } else {
+            images = cursorId != null
+                    ? visitImageRepository.findByOrgAfterCursor(org.getId(), cursorId, PageRequest.of(0, pageSize + 1))
+                    : visitImageRepository.findByOrg(org.getId(), PageRequest.of(0, pageSize + 1));
+        }
+
+        return toListResponse(images, pageSize);
+    }
+
+    @Transactional(readOnly = true)
+    public ImageListResponse listMyUploads(String orgUuid, String afterCursor, Integer limit, CustomUserDetails userDetails) {
+        Organization org = organizationRepository.findByUuid(orgUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization", orgUuid));
+
+        User user = userRepository.findById(userDetails.getId())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        int pageSize = clampLimit(limit);
+        Integer cursorId = decodeCursor(afterCursor);
+
+        List<VisitImage> images = cursorId != null
+                ? visitImageRepository.findByDoctorAndOrgAfterCursor(user.getUuid(), org.getId(), cursorId, PageRequest.of(0, pageSize + 1))
+                : visitImageRepository.findByDoctorAndOrg(user.getUuid(), org.getId(), PageRequest.of(0, pageSize + 1));
 
         return toListResponse(images, pageSize);
     }

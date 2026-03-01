@@ -336,7 +336,7 @@ CREATE TABLE visit_images (
     id INT AUTO_INCREMENT PRIMARY KEY,
     uuid VARCHAR(36) NOT NULL,
     visit_id INT NULL,
-    patient_id INT NOT NULL,
+    patient_id INT NULL,
     organization_id INT NOT NULL,
     doctor_uuid VARCHAR(36),
     image_url VARCHAR(500) NOT NULL,

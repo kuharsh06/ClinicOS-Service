@@ -30,7 +30,7 @@ public class ImageController {
     public ResponseEntity<ApiResponse<ImageUploadResponse>> upload(
             @PathVariable String orgId,
             @RequestParam("file") MultipartFile file,
-            @RequestParam String patientId,
+            @RequestParam(required = false) String patientId,
             @RequestParam(required = false) String visitId,
             @RequestParam(required = false) String caption,
             @RequestParam(required = false) String tags,
@@ -86,6 +86,38 @@ public class ImageController {
             @PathVariable String visitId) {
 
         ImageListResponse response = imageService.listByVisit(orgId, visitId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * List all images for the org (admin only).
+     * GET /v1/orgs/:orgId/images
+     */
+    @GetMapping("/images")
+    @RequirePermission("org:view")
+    public ResponseEntity<ApiResponse<ImageListResponse>> listByOrg(
+            @PathVariable String orgId,
+            @RequestParam(required = false) String fileType,
+            @RequestParam(required = false) String afterCursor,
+            @RequestParam(required = false, defaultValue = "20") Integer limit) {
+
+        ImageListResponse response = imageService.listByOrg(orgId, fileType, afterCursor, limit);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * List my uploads (current user).
+     * GET /v1/orgs/:orgId/images/my-uploads
+     */
+    @GetMapping("/images/my-uploads")
+    @RequirePermission("visit:create")
+    public ResponseEntity<ApiResponse<ImageListResponse>> listMyUploads(
+            @PathVariable String orgId,
+            @RequestParam(required = false) String afterCursor,
+            @RequestParam(required = false, defaultValue = "20") Integer limit,
+            @AuthenticationPrincipal CustomUserDetails userDetails) {
+
+        ImageListResponse response = imageService.listMyUploads(orgId, afterCursor, limit, userDetails);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

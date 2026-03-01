@@ -40,6 +40,7 @@ public class SyncEventProcessor {
     private final VisitRepository visitRepository;
     private final BillRepository billRepository;
     private final BillItemRepository billItemRepository;
+    private final VisitImageRepository visitImageRepository;
     private final OrgMemberRepository orgMemberRepository;
     private final ObjectMapper objectMapper;
     private final jakarta.persistence.EntityManager entityManager;
@@ -592,6 +593,7 @@ public class SyncEventProcessor {
                 .atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate();
 
         Visit existingVisit = visitRepository.findByUuid(visitId).orElse(null);
+        Visit savedVisit;
 
         if (existingVisit != null) {
             if (!existingVisit.getOrganization().getId().equals(org.getId())) {
@@ -609,6 +611,7 @@ public class SyncEventProcessor {
             }
             existingVisit.setSchemaVersion(schemaVersion);
             visitRepository.save(existingVisit);
+            savedVisit = existingVisit;
 
             log.info("Visit {} updated via sync for patient {}", visitId, patientId);
         } else {
@@ -624,6 +627,7 @@ public class SyncEventProcessor {
                     .build();
             visit.setUuid(visitId);
             visitRepository.save(visit);
+            savedVisit = visit;
 
             patient.setTotalVisits(patient.getTotalVisits() + 1);
             patient.setLastVisitDate(visitDate);
@@ -636,6 +640,20 @@ public class SyncEventProcessor {
             patientRepository.save(patient);
 
             log.info("Visit {} created via sync for patient {} by user {}", visitId, patientId, user.getUuid());
+        }
+
+        // Link uploaded images to this visit (if imageIds provided in payload)
+        List<String> imageIds = (List<String>) payload.get("imageIds");
+        if (imageIds != null && !imageIds.isEmpty()) {
+            for (String imageId : imageIds) {
+                visitImageRepository.findByUuid(imageId).ifPresent(img -> {
+                    if (img.getVisit() == null) {
+                        img.setVisit(savedVisit);
+                        visitImageRepository.save(img);
+                    }
+                });
+            }
+            log.info("Linked {} images to visit {}", imageIds.size(), visitId);
         }
     }
 

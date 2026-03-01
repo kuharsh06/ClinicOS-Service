@@ -75,4 +75,34 @@ public interface VisitImageRepository extends JpaRepository<VisitImage, Integer>
             @Param("orgId") Integer orgId,
             @Param("cursorId") Integer cursorId,
             Pageable pageable);
+
+    // By org — first page
+    @Query("SELECT vi FROM VisitImage vi WHERE vi.organization.id = :orgId " +
+            "AND vi.deletedAt IS NULL ORDER BY vi.id DESC")
+    List<VisitImage> findByOrg(@Param("orgId") Integer orgId, Pageable pageable);
+
+    // By org — cursor page
+    @Query("SELECT vi FROM VisitImage vi WHERE vi.organization.id = :orgId " +
+            "AND vi.id < :cursorId AND vi.deletedAt IS NULL ORDER BY vi.id DESC")
+    List<VisitImage> findByOrgAfterCursor(
+            @Param("orgId") Integer orgId,
+            @Param("cursorId") Integer cursorId,
+            Pageable pageable);
+
+    // By org + file type — first page
+    @Query("SELECT vi FROM VisitImage vi WHERE vi.organization.id = :orgId " +
+            "AND vi.fileType = :fileType AND vi.deletedAt IS NULL ORDER BY vi.id DESC")
+    List<VisitImage> findByOrgAndFileType(
+            @Param("orgId") Integer orgId,
+            @Param("fileType") String fileType,
+            Pageable pageable);
+
+    // By org + file type — cursor page
+    @Query("SELECT vi FROM VisitImage vi WHERE vi.organization.id = :orgId " +
+            "AND vi.fileType = :fileType AND vi.id < :cursorId AND vi.deletedAt IS NULL ORDER BY vi.id DESC")
+    List<VisitImage> findByOrgAndFileTypeAfterCursor(
+            @Param("orgId") Integer orgId,
+            @Param("fileType") String fileType,
+            @Param("cursorId") Integer cursorId,
+            Pageable pageable);
 }
