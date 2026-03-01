@@ -335,13 +335,22 @@ CREATE TABLE visits (
 CREATE TABLE visit_images (
     id INT AUTO_INCREMENT PRIMARY KEY,
     uuid VARCHAR(36) NOT NULL,
-    visit_id INT NOT NULL,
+    visit_id INT NULL,
+    patient_id INT NOT NULL,
+    organization_id INT NOT NULL,
+    doctor_uuid VARCHAR(36),
     image_url VARCHAR(500) NOT NULL,
     thumbnail_url VARCHAR(500),
     caption VARCHAR(255),
     sort_order INT NOT NULL DEFAULT 0,
     file_size_bytes INT,
     mime_type VARCHAR(50),
+    original_filename VARCHAR(255),
+    file_type VARCHAR(20) NOT NULL DEFAULT 'image',
+    storage_key VARCHAR(500) NOT NULL,
+    tags JSON,
+    metadata JSON,
+    ai_analysis JSON,
     uploaded_by INT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -349,7 +358,13 @@ CREATE TABLE visit_images (
 
     UNIQUE INDEX idx_visit_images_uuid (uuid),
     INDEX idx_visit_images_visit (visit_id),
+    INDEX idx_visit_images_patient (patient_id),
+    INDEX idx_visit_images_org (organization_id),
+    INDEX idx_visit_images_doctor (doctor_uuid),
+    INDEX idx_visit_images_org_patient (organization_id, patient_id),
     FOREIGN KEY (visit_id) REFERENCES visits(id),
+    FOREIGN KEY (patient_id) REFERENCES patients(id),
+    FOREIGN KEY (organization_id) REFERENCES organizations(id),
     FOREIGN KEY (uploaded_by) REFERENCES org_members(id)
 );
 
