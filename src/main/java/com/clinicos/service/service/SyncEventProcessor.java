@@ -46,8 +46,9 @@ public class SyncEventProcessor {
     private final jakarta.persistence.EntityManager entityManager;
 
     // Valid state transitions per API contract v3.1
+    // WAITING → COMPLETED added for student flow (direct mark_complete without call_now)
     private static final Map<QueueEntryState, Set<QueueEntryState>> VALID_TRANSITIONS = Map.of(
-            QueueEntryState.WAITING, Set.of(QueueEntryState.CALLED, QueueEntryState.REMOVED, QueueEntryState.STASHED),
+            QueueEntryState.WAITING, Set.of(QueueEntryState.CALLED, QueueEntryState.REMOVED, QueueEntryState.STASHED, QueueEntryState.COMPLETED),
             QueueEntryState.CALLED, Set.of(QueueEntryState.COMPLETED, QueueEntryState.WAITING),
             QueueEntryState.STASHED, Set.of(QueueEntryState.WAITING, QueueEntryState.REMOVED),
             QueueEntryState.COMPLETED, Set.of(),
@@ -56,16 +57,16 @@ public class SyncEventProcessor {
 
     // Event type to allowed roles
     private static final Map<String, List<String>> EVENT_ALLOWED_ROLES = Map.ofEntries(
-            Map.entry("patient_added", List.of("assistant", "doctor")),
-            Map.entry("patient_removed", List.of("assistant", "doctor")),
+            Map.entry("patient_added", List.of("assistant", "doctor", "student")),
+            Map.entry("patient_removed", List.of("assistant", "doctor", "student")),
             Map.entry("call_now", List.of("assistant", "doctor")),
             Map.entry("step_out", List.of("assistant", "doctor")),
-            Map.entry("mark_complete", List.of("assistant", "doctor")),
+            Map.entry("mark_complete", List.of("assistant", "doctor", "student")),
             Map.entry("queue_paused", List.of("assistant", "doctor")),
             Map.entry("queue_resumed", List.of("assistant", "doctor")),
             Map.entry("queue_ended", List.of("assistant", "doctor")),
             Map.entry("stash_imported", List.of("assistant", "doctor")),
-            Map.entry("visit_saved", List.of("doctor")),
+            Map.entry("visit_saved", List.of("doctor", "student")),
             Map.entry("bill_created", List.of("assistant", "doctor")),
             Map.entry("bill_updated", List.of("assistant", "doctor")),
             Map.entry("bill_paid", List.of("assistant", "doctor"))

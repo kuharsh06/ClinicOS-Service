@@ -558,7 +558,8 @@ INSERT INTO roles (uuid, name, display_name, description) VALUES
 (UUID(), 'doctor', 'Doctor', 'Doctor role with clinical access'),
 (UUID(), 'assistant', 'Assistant', 'Front desk operations'),
 (UUID(), 'nurse', 'Nurse', 'Clinical support staff'),
-(UUID(), 'billing', 'Billing Staff', 'Billing operations only');
+(UUID(), 'billing', 'Billing Staff', 'Billing operations only'),
+(UUID(), 'student', 'Student', 'Medical student with simplified clinical access');
 
 -- Insert default permissions
 INSERT INTO permissions (uuid, name, category, display_name, description) VALUES
@@ -639,6 +640,15 @@ SELECT UUID(), r.id, p.id FROM roles r, permissions p
 WHERE r.name = 'billing' AND p.name IN (
     'org:view', 'patient:view', 'billing:view', 'billing:create',
     'billing:mark_paid', 'billing:manage_templates', 'analytics:view'
+);
+
+-- Student permissions (simplified clinical access — no billing, analytics, SMS, team management)
+INSERT INTO role_permissions (uuid, role_id, permission_id)
+SELECT UUID(), r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'student' AND p.name IN (
+    'org:view', 'queue:view', 'queue:manage',
+    'patient:view', 'patient:view_clinical', 'patient:create', 'patient:update',
+    'visit:create', 'visit:update', 'visit:view'
 );
 
 -- ============================================================================

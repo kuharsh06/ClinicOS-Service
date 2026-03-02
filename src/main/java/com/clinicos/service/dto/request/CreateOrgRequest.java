@@ -50,6 +50,8 @@ public class CreateOrgRequest {
     @NotNull(message = "Working hours are required")
     private WorkingHours workingHours;
 
+    private String creatorRole;  // "admin" (default) or "student"
+
     @Valid
     @NotNull(message = "Creator info is required")
     private Creator creator;

@@ -3,6 +3,7 @@ package com.clinicos.service.service;
 import com.clinicos.service.dto.request.CreateOrgRequest;
 import com.clinicos.service.dto.response.*;
 import com.clinicos.service.entity.*;
+import com.clinicos.service.exception.BusinessException;
 import com.clinicos.service.exception.ConflictException;
 import com.clinicos.service.exception.ResourceNotFoundException;
 import com.clinicos.service.repository.*;
@@ -38,6 +39,8 @@ public class OrganizationService {
     private final ObjectMapper objectMapper;
 
     private static final String ADMIN_ROLE = "admin";
+    private static final String STUDENT_ROLE = "student";
+    private static final Set<String> ALLOWED_CREATOR_ROLES = Set.of(ADMIN_ROLE, STUDENT_ROLE);
 
     @Transactional
     public CreateOrgResponse createOrganization(CreateOrgRequest request, Integer userId, String deviceId) {
@@ -52,6 +55,12 @@ public class OrganizationService {
 
         if (hasActiveOrg) {
             throw new ConflictException("User already belongs to an organization");
+        }
+
+        // Resolve creator role (defaults to admin)
+        String roleName = request.getCreatorRole() != null ? request.getCreatorRole() : ADMIN_ROLE;
+        if (!ALLOWED_CREATOR_ROLES.contains(roleName)) {
+            throw new BusinessException("Invalid creator role: " + roleName + ". Allowed: admin, student");
         }
 
         // Update user name if not set
@@ -80,32 +89,33 @@ public class OrganizationService {
                 .build();
 
         organizationRepository.save(org);
-        log.info("Organization {} created by user {}", org.getUuid(), user.getUuid());
+        log.info("Organization {} created by user {} (role: {})", org.getUuid(), user.getUuid(), roleName);
 
-        // Get admin role
-        Role adminRole = roleRepository.findByName(ADMIN_ROLE)
-                .orElseThrow(() -> new ResourceNotFoundException("Role", ADMIN_ROLE));
+        // Get creator role
+        Role creatorRole = roleRepository.findByName(roleName)
+                .orElseThrow(() -> new ResourceNotFoundException("Role", roleName));
 
-        // Create org member (creator as admin)
+        // Create org member — students are profile-complete immediately (no doctor profile needed)
+        boolean isStudent = STUDENT_ROLE.equals(roleName);
         OrgMember member = OrgMember.builder()
                 .organization(org)
                 .user(user)
                 .isActive(true)
-                .isProfileComplete(false)  // Profile not filled yet
+                .isProfileComplete(isStudent)
                 .build();
 
         orgMemberRepository.save(member);
 
-        // Assign admin role to member
+        // Assign role to member
         OrgMemberRole memberRole = OrgMemberRole.builder()
                 .orgMember(member)
-                .role(adminRole)
+                .role(creatorRole)
                 .build();
 
         orgMemberRoleRepository.save(memberRole);
 
-        // Get admin permissions
-        List<String> permissions = rolePermissionRepository.findByRoleIdWithPermissions(adminRole.getId())
+        // Get role permissions
+        List<String> permissions = rolePermissionRepository.findByRoleIdWithPermissions(creatorRole.getId())
                 .stream()
                 .map(rp -> rp.getPermission().getName())
                 .collect(Collectors.toList());
@@ -129,7 +139,7 @@ public class OrganizationService {
 
         // Build response
         OrganizationResponse orgResponse = buildOrganizationResponse(org);
-        OrgMemberResponse memberResponse = buildMemberResponse(member, List.of(ADMIN_ROLE), permissions);
+        OrgMemberResponse memberResponse = buildMemberResponse(member, List.of(roleName), permissions);
 
         return CreateOrgResponse.builder()
                 .org(orgResponse)
