@@ -25,10 +25,10 @@ public class Patient extends BaseEntity {
     @JoinColumn(name = "org_id", nullable = false)
     private Organization organization;
 
-    @Column(name = "phone", nullable = false, length = 15)
+    @Column(name = "phone", length = 15)
     private String phone;
 
-    @Column(name = "country_code", nullable = false, length = 5)
+    @Column(name = "country_code", length = 5)
     @Builder.Default
     private String countryCode = "+91";
 
