@@ -51,6 +51,9 @@ public enum AuditAction {
     LIST_BILLS("billing"),
     MARK_BILL_PAID("billing"),
 
+    // AI
+    AI_EXTRACT("ai"),
+
     // Other
     VIEW_ANALYTICS("analytics"),
     SEND_SMS("sms");

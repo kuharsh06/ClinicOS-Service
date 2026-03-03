@@ -69,6 +69,9 @@ public final class AuditActionMapping {
             Map.entry("GET:/v1/orgs/{orgId}/bills", new ActionConfig(AuditAction.LIST_BILLS)),
             Map.entry("PUT:/v1/orgs/{orgId}/bills/{billId}/mark-paid", new ActionConfig(AuditAction.MARK_BILL_PAID, "billId")),
 
+            // AI (1)
+            Map.entry("POST:/v1/orgs/{orgId}/ai/extract", new ActionConfig(AuditAction.AI_EXTRACT)),
+
             // Other (2)
             Map.entry("GET:/v1/orgs/{orgId}/analytics", new ActionConfig(AuditAction.VIEW_ANALYTICS)),
             Map.entry("POST:/v1/orgs/{orgId}/sms/send", new ActionConfig(AuditAction.SEND_SMS))
