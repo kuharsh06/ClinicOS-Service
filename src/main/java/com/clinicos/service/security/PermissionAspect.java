@@ -1,6 +1,7 @@
 package com.clinicos.service.security;
 
 import com.clinicos.service.exception.InsufficientPermissionException;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
@@ -9,6 +10,8 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -62,6 +65,12 @@ public class PermissionAspect {
                         userDetails.getUuid(),
                         method.getName(),
                         permission);
+
+                // Pass denied permission to AuditInterceptor via request attribute
+                ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+                if (attrs != null) {
+                    attrs.getRequest().setAttribute("audit.deniedPermission", permission);
+                }
 
                 throw new InsufficientPermissionException(permission);
             }

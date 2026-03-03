@@ -642,6 +642,32 @@ WHERE r.name = 'billing' AND p.name IN (
 );
 
 -- ============================================================================
+-- 11. AUDIT LOGS (DPDP Rule 6 Compliance)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(36),
+    org_id VARCHAR(36),
+    action VARCHAR(50) NOT NULL,
+    resource_type VARCHAR(30) NOT NULL,
+    resource_id VARCHAR(36),
+    status VARCHAR(15) NOT NULL,
+    denied_reason VARCHAR(200),
+    endpoint VARCHAR(200),
+    ip_address VARCHAR(45),
+    device_id VARCHAR(100),
+    user_agent VARCHAR(500),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_audit_user (user_id, created_at),
+    INDEX idx_audit_org (org_id, created_at),
+    INDEX idx_audit_action (action, created_at),
+    INDEX idx_audit_status (status, created_at),
+    INDEX idx_audit_created (created_at)
+);
+
+-- ============================================================================
 -- Done!
 -- ============================================================================
 SELECT 'Schema created successfully!' AS status;
