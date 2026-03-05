@@ -10,6 +10,9 @@ import com.clinicos.service.enums.Platform;
 import com.clinicos.service.exception.BusinessException;
 import com.clinicos.service.repository.*;
 import com.clinicos.service.security.jwt.JwtTokenProvider;
+import com.clinicos.service.service.sms.SmsProvider;
+import com.clinicos.service.service.sms.SmsProviderException;
+import com.clinicos.service.service.sms.SmsResult;
 import com.clinicos.service.util.TokenHashUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +41,10 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final OtpAttemptService otpAttemptService;
+    private final SmsProvider smsProvider;
+
+    @org.springframework.beans.factory.annotation.Value("${clinicos.sms.enabled:false}")
+    private boolean smsEnabled;
 
     private static final int OTP_LENGTH = 6;
     private static final int OTP_EXPIRY_SECONDS = 300;  // 5 minutes
@@ -67,13 +74,25 @@ public class AuthService {
 
         log.info("OTP sent to {}{}", countryCode, phone);
 
-        // TODO: Integrate with SMS provider to send actual OTP
+        // Send OTP via SMS if enabled
+        if (smsEnabled) {
+            try {
+                SmsResult result = smsProvider.sendOtp(phone, otp);
+                if (!result.isSuccess()) {
+                    log.error("SMS sending failed for {}: code={}, message={}", phone, result.getStatusCode(), result.getErrorMessage());
+                    throw new BusinessException("SMS_SEND_FAILED", "Failed to send OTP. Please try again.");
+                }
+            } catch (SmsProviderException e) {
+                log.error("SMS provider error for {}: {}", phone, e.getMessage());
+                throw new BusinessException("SMS_SEND_FAILED", "Failed to send OTP. Please try again.");
+            }
+        }
 
         return OtpResponse.builder()
                 .requestId(otpRequest.getUuid())
                 .expiresInSeconds(OTP_EXPIRY_SECONDS)
                 .retryAfterSeconds(OTP_RETRY_AFTER_SECONDS)
-                .devOtp(otp) // Remove in production
+                .devOtp(smsEnabled ? null : otp)
                 .build();
     }
 
@@ -306,14 +325,15 @@ public class AuthService {
     }
 
     private String generateOtp() {
-        // TODO: Restore random OTP generation when SMS service is live
-        // SecureRandom random = new SecureRandom();
-        // StringBuilder otp = new StringBuilder();
-        // for (int i = 0; i < OTP_LENGTH; i++) {
-        //     otp.append(random.nextInt(10));
-        // }
-        // return otp.toString();
-        return "123456".toString();
+        if (!smsEnabled) {
+            return "123456";
+        }
+        SecureRandom random = new SecureRandom();
+        StringBuilder otp = new StringBuilder();
+        for (int i = 0; i < OTP_LENGTH; i++) {
+            otp.append(random.nextInt(10));
+        }
+        return otp.toString();
     }
 
     private Platform parsePlatform(String platform) {
