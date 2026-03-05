@@ -372,12 +372,9 @@ public class SyncEventProcessor {
         entry.setCompletedAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
         queueEntryRepository.save(entry);
 
-        Patient patient = entry.getPatient();
-        patient.setTotalVisits(patient.getTotalVisits() + 1);
-        long completedMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
-        patient.setLastVisitDate(Instant.ofEpochMilli(completedMs).atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate());
-        patient.setLastComplaintTags(entry.getComplaintTags());
-        patientRepository.save(patient);
+        // Patient stats (totalVisits, lastVisitDate, lastComplaintTags) are updated
+        // only in processVisitSaved, which creates the actual Visit record.
+        // Updating here caused double-counting.
 
         log.info("Patient consultation completed: entry={}", entryId);
     }

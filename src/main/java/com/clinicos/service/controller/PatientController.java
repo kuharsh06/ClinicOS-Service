@@ -25,6 +25,8 @@ public class PatientController {
     /**
      * Get paginated list of patients.
      * GET /v1/orgs/:orgId/patients?after=<cursor>&limit=20&search=<query>&sort=<field>
+     *
+     * TODO: Add filters — doctor, date range, gender, age, isRegular, complaint tags
      */
     @GetMapping("/patients")
     @RequirePermission("patient:view")
