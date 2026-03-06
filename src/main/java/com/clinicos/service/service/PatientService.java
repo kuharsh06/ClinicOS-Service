@@ -153,6 +153,16 @@ public class PatientService {
                 : null;
 
         return PatientThreadResponse.builder()
+                .patient(PatientThreadResponse.PatientSummary.builder()
+                        .patientId(patient.getUuid())
+                        .name(patient.getName())
+                        .phone(patient.getPhone())
+                        .age(patient.getAge())
+                        .gender(patient.getGender() != null ? patient.getGender().getValue() : null)
+                        .totalVisits(patient.getTotalVisits())
+                        .isRegular(patient.getIsRegular())
+                        .createdAt(patient.getCreatedAt().toString())
+                        .build())
                 .visits(visitDtos)
                 .meta(PatientThreadResponse.Meta.builder()
                         .pagination(PatientListResponse.CursorPagination.builder()

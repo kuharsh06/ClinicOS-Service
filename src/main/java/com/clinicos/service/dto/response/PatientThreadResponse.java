@@ -16,8 +16,25 @@ import java.util.Map;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class PatientThreadResponse {
 
+    private PatientSummary patient;
     private List<VisitDto> visits;
     private Meta meta;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class PatientSummary {
+        private String patientId;
+        private String name;
+        private String phone;
+        private Integer age;
+        private String gender;
+        private Integer totalVisits;
+        private Boolean isRegular;
+        private String createdAt;
+    }
 
     @Data
     @Builder
