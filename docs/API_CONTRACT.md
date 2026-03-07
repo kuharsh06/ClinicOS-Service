@@ -1564,16 +1564,26 @@ GET /v1/orgs/:orgId/patients/:patientId/thread?after=<cursor>&limit=10
 
 **Requires:** `patient:view`
 
-**Note:** Does NOT return patient details separately. The caller (patient list, queue card, search) already has basic patient info via navigation params. Don't re-fetch.
-
 **Response (200):**
 
 ```typescript
 interface PatientThreadResponse {
+  patient: PatientSummary;
   visits: Visit[];
   meta: {
     pagination: CursorPagination;
   };
+}
+
+interface PatientSummary {
+  patientId: string;
+  name: string;
+  phone: string | null;
+  age: number | null;
+  gender: string | null;
+  totalVisits: number;
+  isRegular: boolean;
+  createdAt: string;
 }
 ```
 

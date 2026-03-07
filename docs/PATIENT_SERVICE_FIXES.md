@@ -132,6 +132,20 @@ Silently ignores rather than throws — the visit is still created, just without
 
 ---
 
+## 4. Patient thread response missing patient info (Low — API Completeness)
+
+**Commit:** `307c295`
+
+**Files:** `PatientThreadResponse.java`, `PatientService.java:155-165`
+
+**Problem:** `GET /patients/{patientId}/thread` returned only visits and pagination. No patient details (name, phone, age, etc.) were included. The client had to rely on cached data from the patient list, making the thread screen not self-contained.
+
+**Fix:** Added `PatientSummary` to `PatientThreadResponse` with: `patientId`, `name`, `phone`, `age`, `gender`, `totalVisits`, `isRegular`, `createdAt`. No extra DB query — the patient entity is already loaded for the org validation check.
+
+Fields deliberately excluded: `lastVisitDate` and `lastComplaintTags` — these are visible from the first visit in the thread itself.
+
+---
+
 ## 4. Gender returns lowercase for API consistency (Low)
 
 **File:** `PatientService.java:258, 274`

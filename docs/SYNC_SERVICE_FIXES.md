@@ -51,7 +51,7 @@ REMOVED     → (terminal)
 | Handler | Field | Before (wrong) | After (correct) |
 |---------|-------|-----------------|------------------|
 | `processQueueResumed` | pause duration | `System.currentTimeMillis() - pauseStart` | `deviceTimestamp - pauseStart` |
-| `processMarkComplete` | `patient.lastVisitDate` | `LocalDate.now()` | `Instant.ofEpochMilli(deviceTimestamp)` converted to `Asia/Kolkata` zone |
+| `processMarkComplete` | `patient.lastVisitDate` | `LocalDate.now()` | **Removed** — patient stats no longer updated here (moved to `visit_saved` only, see fix below) |
 | `processQueueEnded` | `queue.endedAt` | `Instant.now()` | `Instant.ofEpochMilli(deviceTimestamp)` |
 
 **Lines changed:** `SyncService.java:439-441`, `SyncService.java:470-477`, `SyncService.java:497-499`
@@ -569,7 +569,7 @@ ORDER BY e.serverReceivedAt ASC
 | `patient_removed` | assistant, doctor | WAITING only | queue_entry state |
 | `call_now` | assistant, doctor | WAITING only | queue_entry state |
 | `step_out` | assistant, doctor | CALLED only | queue_entry state + position |
-| `mark_complete` | assistant, doctor | CALLED only | queue_entry state + patient stats |
+| `mark_complete` | assistant, doctor | CALLED only | queue_entry state only (patient stats updated by `visit_saved`) |
 | `queue_paused` | assistant, doctor | ACTIVE only | queue status |
 | `queue_resumed` | assistant, doctor | PAUSED only | queue status |
 | `queue_ended` | assistant, doctor | not ENDED | queue status + auto-complete + stash |
@@ -577,3 +577,19 @@ ORDER BY e.serverReceivedAt ASC
 | `visit_saved` | doctor | none (create/update) | visit + patient stats |
 | `bill_created` | assistant, doctor | none (creates new) | bill + bill_items + queue_entry.isBilled |
 | `bill_updated` | assistant, doctor | bill must exist | bill.isPaid |
+
+---
+
+## Fix: Double-counting of patient `totalVisits` (Critical — Data Integrity)
+
+**Commit:** `56610bc`
+
+**Problem:** `processMarkComplete` incremented `patient.totalVisits`, set `patient.lastVisitDate`, and updated `patient.lastComplaintTags`. But `processVisitSaved` also does the same when creating the actual Visit record. Since both events fire for every consultation (mark_complete for queue state, visit_saved for clinical data), `totalVisits` was incremented twice per consultation.
+
+**Impact:** 61% of patients (148 out of 242) had inflated `totalVisits`. The `isRegular` flag (set when `totalVisits > 3`) was also incorrect for many patients. Patient list sorting by `visits_desc` returned wrong order.
+
+**Fix:** Removed patient stats update from `processMarkComplete` (`SyncEventProcessor.java:375-380`). The `processVisitSaved` handler is now the single source of truth for `totalVisits`, `lastVisitDate`, and `lastComplaintTags`.
+
+**Data reconciliation:** Ran UPDATE to set `total_visits = COUNT(visits)` and `last_visit_date = MAX(visit_date)` from actual visits table. Verified 0 mismatches after reconciliation.
+
+**Rationale:** `mark_complete` is a queue state change (CALLED → COMPLETED). `visit_saved` creates the actual Visit record. Patient stats should track actual visits, not queue completions. Additionally, visits can be created without a queue (via REST API), so tying stats to visit creation keeps both paths consistent.
