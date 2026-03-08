@@ -288,7 +288,7 @@ public class AuthService {
 
             // Get assigned doctor for assistants
             if (activeMembership.getAssignedDoctor() != null) {
-                assignedDoctorId = activeMembership.getAssignedDoctor().getUuid();
+                assignedDoctorId = activeMembership.getAssignedDoctor().getUser().getUuid();
                 // Get doctor's name from user
                 assignedDoctorName = activeMembership.getAssignedDoctor().getUser().getName();
             }

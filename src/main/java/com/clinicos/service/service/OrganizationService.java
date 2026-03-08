@@ -255,7 +255,7 @@ public class OrganizationService {
                 .profileData(fromJson(member.getProfileData(), Map.class))
                 .profileSchemaVersion(member.getProfileSchemaVersion())
                 .isProfileComplete(member.getIsProfileComplete())
-                .assignedDoctorId(member.getAssignedDoctor() != null ? member.getAssignedDoctor().getUuid() : null)
+                .assignedDoctorId(member.getAssignedDoctor() != null ? member.getAssignedDoctor().getUser().getUuid() : null)
                 .assignedDoctorName(member.getAssignedDoctor() != null ? member.getAssignedDoctor().getUser().getName() : null)
                 .lastActiveAt(member.getLastActiveAt() != null ? member.getLastActiveAt().toString() : null)
                 .joinedAt(member.getCreatedAt().toString())
