@@ -537,12 +537,14 @@ interface AuthUser {
   roles: UserRole[]; // [] for new users, ['admin', 'doctor'] or ['assistant'] etc.
   permissions: Permission[]; // union of all role permissions — SOURCE OF TRUTH for frontend
   isProfileComplete: boolean; // false if roles includes 'doctor' but profile not filled
-  assignedDoctorId: string | null; // which doctor this assistant manages (null for non-assistants or unassigned)
+  assignedDoctorId: string | null; // the doctor's **User UUID** (not OrgMember UUID) — use this for queue and sync endpoints
   assignedDoctorName: string | null; // denormalized — needed at boot before members list loads (see §8.9)
 }
 ```
 
 > **Added in v3.2 — Assistant→Doctor Assignment:** `assignedDoctorId` and `assignedDoctorName` enable single-writer queue management. One assistant manages one doctor's queue — prevents multi-device conflicts. The admin assigns via ManageTeam (§8.5). `assignedDoctorName` is denormalized because the boot sequence (SQLite cache → queue store) needs the doctor name before the members list is fetched. Same denormalization pattern as `patientName` on `QueueEntryFull`. Server populates via JOIN on the member table. Both fields are `null` for doctors, admins, new users, and unassigned assistants.
+>
+> **Important (fix `9d1783f`):** `assignedDoctorId` is the doctor's **User UUID**, not the OrgMember UUID. This is the same UUID type returned in `userId` on `AuthUser`. Use it directly for `GET /queues/active?doctorId=`, `payload.doctorId` in sync events, and all other doctor-identifying parameters.
 
 **Frontend routing based on AuthUser:**
 

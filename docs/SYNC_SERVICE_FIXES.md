@@ -28,12 +28,11 @@
 
 **State machine:**
 ```
-WAITING     → CALLED, REMOVED, STASHED, STEPPED_OUT
-CALLED      → COMPLETED, REMOVED, STEPPED_OUT
-STEPPED_OUT → WAITING, REMOVED
-STASHED     → WAITING (via stash import)
-COMPLETED   → (terminal)
-REMOVED     → (terminal)
+WAITING   → CALLED, REMOVED, STASHED
+CALLED    → COMPLETED, WAITING (via step_out)
+STASHED   → WAITING (via stash import), REMOVED
+COMPLETED → (terminal)
+REMOVED   → (terminal)
 ```
 
 **Lines changed:** `SyncService.java:46-54` (map), `SyncService.java:371-384` (guard method), lines 396, 413, 434, 451 (guard calls)
@@ -593,3 +592,63 @@ ORDER BY e.serverReceivedAt ASC
 **Data reconciliation:** Ran UPDATE to set `total_visits = COUNT(visits)` and `last_visit_date = MAX(visit_date)` from actual visits table. Verified 0 mismatches after reconciliation.
 
 **Rationale:** `mark_complete` is a queue state change (CALLED → COMPLETED). `visit_saved` creates the actual Visit record. Patient stats should track actual visits, not queue completions. Additionally, visits can be created without a queue (via REST API), so tying stats to visit creation keeps both paths consistent.
+
+---
+
+## Fix: `assignedDoctorId` returning org_member UUID instead of user UUID (Critical — Auth/Sync)
+
+**Commit:** `9d1783f`
+
+**Problem:** The auth response (`POST /auth/otp/verify`, `POST /auth/token/refresh`) and org detail response returned `assignedDoctorId` as the OrgMember UUID instead of the User UUID. All queue and sync endpoints expect the User UUID for doctor identification.
+
+**Impact:**
+- `GET /queues/active?doctorId=<assignedDoctorId>` failed for assistants (no queue found)
+- `patient_added` with `payload.doctorId` set to the auth-provided `assignedDoctorId` would fail when creating a new queue (first patient of the day) because `processPatientAdded` matches against `user.getUuid()`, not org_member UUID
+- When a queue already existed (found by `queueId`), the wrong `doctorId` was silently ignored — masking the bug during normal operation
+- `MemberService` already used the correct `.getUser().getUuid()`, making the inconsistency harder to spot
+
+**Files changed:**
+- `AuthService.java:291` — `activeMembership.getAssignedDoctor().getUuid()` → `.getUser().getUuid()`
+- `OrganizationService.java:258` — `member.getAssignedDoctor().getUuid()` → `.getUser().getUuid()`
+
+**Verification:** Tested via curl — assistant (7903897009) now receives correct user UUID (`4b06dee4...`) instead of org_member UUID (`286f4b66...`). Queue endpoint works with the returned `assignedDoctorId`.
+
+---
+
+## Fix: Queue entry position collisions across events (Medium — Queue Ordering)
+
+**Commit:** `64cda14`
+
+**Problem:** Three event handlers calculated queue entry positions using different logic, causing duplicate positions and incorrect ordering:
+
+| Event | Old logic | Result |
+|-------|-----------|--------|
+| `patient_added` | `position = allEntries.size() + 1` (count of all entries) | Could collide with step_out positions |
+| `step_out` | `position = max(WAITING positions) + 1` (max of WAITING only) | Skipped completed/called positions, jumped ahead |
+| `import_stash` | `position = 1` (hardcoded start) | Would collide if entries existed before import |
+
+**Example:** Queue with 5 entries (1-3 completed, 4 called, 5 waiting). Step_out on entry 4: max WAITING = 5, so position = 6. New patient added: count = 5, so position = 6. Both get position 6 — collision. The new patient appears before the stepped-out patient, violating the expectation that stepped-out patients keep their "end of queue" placement.
+
+**Fix:** Added `nextPosition()` utility that computes `max(position across ALL entries) + 1`. All three handlers now use this single function:
+
+```java
+private int nextPosition(List<QueueEntry> entries) {
+    return entries.stream()
+            .mapToInt(e -> e.getPosition() != null ? e.getPosition() : 0)
+            .max()
+            .orElse(0) + 1;
+}
+```
+
+Each caller fetches the entry list once and passes it to the utility — no extra DB queries in the helper itself.
+
+**Files changed:** `SyncEventProcessor.java` — `processPatientAdded`, `processStepOut`, `processStashImported`, new `nextPosition()` utility
+
+**Verification:** Tested via curl — step_out (position 24), then patient_added (position 25). All new positions unique, new patient correctly placed after stepped-out patient. Old duplicate positions (from before the fix) remain in existing data but do not affect new operations.
+
+**Updated state machine behavior:**
+```
+step_out: CALLED → WAITING (position = max of ALL entries + 1, always last)
+patient_added: new entry at position = max of ALL entries + 1 (always after step_out)
+import_stash: entries positioned sequentially from max of ALL entries + 1
+```
