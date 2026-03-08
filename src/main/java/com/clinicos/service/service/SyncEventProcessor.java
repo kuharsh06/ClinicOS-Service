@@ -276,15 +276,14 @@ public class SyncEventProcessor {
             queueRepository.save(queue);
         }
 
-        // Count existing entries to determine position (always appends to end)
-        int entryCount = queueEntryRepository.findByQueueIdOrderByPositionAsc(queue.getId()).size();
+        List<QueueEntry> existingEntries = queueEntryRepository.findByQueueIdOrderByPositionAsc(queue.getId());
 
         QueueEntry entry = QueueEntry.builder()
                 .queue(queue)
                 .patient(patient)
                 .tokenNumber(tokenNumber != null ? tokenNumber : queue.getLastToken())
                 .state(QueueEntryState.WAITING)
-                .position(entryCount + 1)
+                .position(nextPosition(existingEntries))
                 .complaintTags(complaintTags != null ? toJson(complaintTags) : null)
                 .complaintText(complaintText)
                 .isBilled(false)
@@ -345,20 +344,15 @@ public class SyncEventProcessor {
         guardStateTransition(entry, QueueEntryState.WAITING);
 
         List<QueueEntry> allEntries = queueEntryRepository.findByQueueIdOrderByPositionAsc(entry.getQueue().getId());
-        int maxPosition = allEntries.stream()
-                .filter(e -> e.getState() == QueueEntryState.WAITING)
-                .mapToInt(e -> e.getPosition() != null ? e.getPosition() : 0)
-                .max()
-                .orElse(0);
 
         entry.setState(QueueEntryState.WAITING);
-        entry.setPosition(maxPosition + 1);
+        entry.setPosition(nextPosition(allEntries));
         entry.setStepOutReason(reason);
         entry.setSteppedOutAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
         entry.setCalledAt(null);
         queueEntryRepository.save(entry);
 
-        log.info("Patient stepped out, moved to end of waiting queue (position {}): entry={}", maxPosition + 1, entryId);
+        log.info("Patient stepped out, moved to end of queue (position {}): entry={}", entry.getPosition(), entryId);
     }
 
     private void processMarkComplete(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
@@ -509,10 +503,11 @@ public class SyncEventProcessor {
             log.info("Created new queue for stash import: {}", newQueueId);
         }
 
-        int position = 1;
         int maxToken = 0;
 
         if (importedEntryIds != null && !importedEntryIds.isEmpty()) {
+            int position = nextPosition(queueEntryRepository.findByQueueIdOrderByPositionAsc(newQueue.getId()));
+
             for (String entryId : importedEntryIds) {
                 QueueEntry stashedEntry = queueEntryRepository.findByUuid(entryId).orElse(null);
                 if (stashedEntry == null) continue;
@@ -877,6 +872,13 @@ public class SyncEventProcessor {
     }
 
     // ==================== Utilities ====================
+
+    private int nextPosition(List<QueueEntry> entries) {
+        return entries.stream()
+                .mapToInt(e -> e.getPosition() != null ? e.getPosition() : 0)
+                .max()
+                .orElse(0) + 1;
+    }
 
     private void guardStateTransition(QueueEntry entry, QueueEntryState targetState) {
         QueueEntryState currentState = entry.getState();
