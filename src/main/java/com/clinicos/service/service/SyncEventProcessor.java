@@ -11,6 +11,8 @@ import com.clinicos.service.exception.ResourceNotFoundException;
 import com.clinicos.service.repository.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.clinicos.service.config.AppMetrics;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,6 +46,7 @@ public class SyncEventProcessor {
     private final OrgMemberRepository orgMemberRepository;
     private final ObjectMapper objectMapper;
     private final jakarta.persistence.EntityManager entityManager;
+    private final AppMetrics appMetrics;
 
     // Valid state transitions per API contract v3.1
     private static final Map<QueueEntryState, Set<QueueEntryState>> VALID_TRANSITIONS = Map.of(
@@ -109,26 +112,37 @@ public class SyncEventProcessor {
         // (resolveQueueId may have loaded entities before the lock was acquired)
         entityManager.clear();
 
+        Timer.Sample timerSample = appMetrics.startTimer();
+        String eventType = event.getEventType() != null ? event.getEventType() : "unknown";
+
         try {
             // 1. DEDUP by eventId
             if (eventStoreRepository.findByUuid(event.getEventId()).isPresent()) {
+                appMetrics.recordSyncEvent(eventType, "rejected", "DUPLICATE_IGNORED");
+                appMetrics.recordSyncDuration(timerSample, eventType, "rejected");
                 return EventResult.rejected(event.getEventId(), "DUPLICATE_IGNORED", "Event already processed");
             }
 
             // 2. ROLE CHECK
             List<String> allowedRoles = EVENT_ALLOWED_ROLES.get(event.getEventType());
             if (allowedRoles == null) {
+                appMetrics.recordSyncEvent(eventType, "rejected", "INVALID_EVENT_TYPE");
+                appMetrics.recordSyncDuration(timerSample, eventType, "rejected");
                 return EventResult.rejected(event.getEventId(), "INVALID_EVENT_TYPE",
                         "Unknown event type: " + event.getEventType());
             }
             boolean hasAllowedRole = actualRoles.stream().anyMatch(allowedRoles::contains);
             if (!hasAllowedRole) {
+                appMetrics.recordSyncEvent(eventType, "rejected", "UNAUTHORIZED_ROLE");
+                appMetrics.recordSyncDuration(timerSample, eventType, "rejected");
                 return EventResult.rejected(event.getEventId(), "UNAUTHORIZED_ROLE",
                         "User roles " + actualRoles + " cannot perform " + event.getEventType());
             }
 
             // 3. SCHEMA CHECK
             if (event.getSchemaVersion() == null || event.getSchemaVersion() < 1) {
+                appMetrics.recordSyncEvent(eventType, "rejected", "SCHEMA_MISMATCH");
+                appMetrics.recordSyncDuration(timerSample, eventType, "rejected");
                 return EventResult.rejected(event.getEventId(), "SCHEMA_MISMATCH", "Invalid schema version");
             }
 
@@ -151,11 +165,14 @@ public class SyncEventProcessor {
 
             // 5. Process event
             try {
-                processEvent(event, user, org);
+                boolean workDone = processEvent(event, user, org);
 
                 eventStore.setStatus(EventStatus.APPLIED);
                 eventStoreRepository.save(eventStore);
 
+                String code = workDone ? "none" : "IDEMPOTENT";
+                appMetrics.recordSyncEvent(eventType, "applied", code);
+                appMetrics.recordSyncDuration(timerSample, eventType, "applied");
                 log.info("Event {} processed: {} on {}", event.getEventId(), event.getEventType(), event.getTargetEntity());
                 return EventResult.accepted(event.getEventId(), serverTimestamp);
 
@@ -165,11 +182,15 @@ public class SyncEventProcessor {
                 eventStore.setRejectionReason(processingEx.getMessage());
                 eventStoreRepository.save(eventStore);
 
+                appMetrics.recordSyncEvent(eventType, "rejected", "PROCESSING_ERROR");
+                appMetrics.recordSyncDuration(timerSample, eventType, "rejected");
                 log.error("Event {} failed processing: {}", event.getEventId(), processingEx.getMessage());
                 return EventResult.rejected(event.getEventId(), "PROCESSING_ERROR", processingEx.getMessage());
             }
 
         } catch (Exception e) {
+            appMetrics.recordSyncEvent(eventType, "rejected", "PROCESSING_ERROR");
+            appMetrics.recordSyncDuration(timerSample, eventType, "rejected");
             log.error("Error processing event {}: {}", event.getEventId(), e.getMessage());
             return EventResult.rejected(event.getEventId(), "PROCESSING_ERROR", e.getMessage());
         }
@@ -177,25 +198,29 @@ public class SyncEventProcessor {
 
     // ==================== Event Dispatcher ====================
 
-    private void processEvent(SyncPushRequest.SyncEvent event, User user, Organization org) {
+    /**
+     * Dispatch event to handler. Returns true if actual work was done,
+     * false if idempotent no-op (already paused, already ended, bill exists, etc.)
+     */
+    private boolean processEvent(SyncPushRequest.SyncEvent event, User user, Organization org) {
         Map<String, Object> payload = event.getPayload();
 
-        switch (event.getEventType()) {
-            case "patient_added" -> processPatientAdded(event, user, org, payload);
-            case "patient_removed" -> processPatientRemoved(event, payload);
-            case "call_now" -> processCallNow(event, payload);
-            case "step_out" -> processStepOut(event, payload);
-            case "mark_complete" -> processMarkComplete(event, payload);
+        return switch (event.getEventType()) {
+            case "patient_added" -> { processPatientAdded(event, user, org, payload); yield true; }
+            case "patient_removed" -> { processPatientRemoved(event, payload); yield true; }
+            case "call_now" -> { processCallNow(event, payload); yield true; }
+            case "step_out" -> { processStepOut(event, payload); yield true; }
+            case "mark_complete" -> { processMarkComplete(event, payload); yield true; }
             case "queue_paused" -> processQueuePaused(event, payload);
             case "queue_resumed" -> processQueueResumed(event, payload);
             case "queue_ended" -> processQueueEnded(event, payload);
-            case "stash_imported" -> processStashImported(event, user, org, payload);
-            case "visit_saved" -> processVisitSaved(event, user, org, payload);
+            case "stash_imported" -> { processStashImported(event, user, org, payload); yield true; }
+            case "visit_saved" -> { processVisitSaved(event, user, org, payload); yield true; }
             case "bill_created" -> processBillCreated(event, user, org, payload);
-            case "bill_updated" -> processBillUpdated(event, user, org, payload);
+            case "bill_updated" -> { processBillUpdated(event, user, org, payload); yield true; }
             case "bill_paid" -> processBillPaid(event, user, org, payload);
-            default -> log.warn("Unknown event type: {}", event.getEventType());
-        }
+            default -> { log.warn("Unknown event type: {}", event.getEventType()); yield true; }
+        };
     }
 
     // ==================== Queue-Mutating Event Handlers ====================
@@ -268,6 +293,7 @@ public class SyncEventProcessor {
                     .build();
             queue.setUuid(queueId);
             queueRepository.save(queue);
+            appMetrics.recordQueueStarted();
             log.info("Created new queue: {} for doctor: {}", queueId, doctorId);
         }
 
@@ -328,8 +354,14 @@ public class SyncEventProcessor {
 
         guardStateTransition(entry, QueueEntryState.CALLED);
         entry.setState(QueueEntryState.CALLED);
-        entry.setCalledAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
+        long calledAt = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+        entry.setCalledAt(calledAt);
         queueEntryRepository.save(entry);
+
+        // Wait time: how long patient waited from registration to being called
+        if (entry.getRegisteredAt() != null && calledAt > entry.getRegisteredAt()) {
+            appMetrics.recordQueueWaitTime(calledAt - entry.getRegisteredAt());
+        }
 
         log.info("Patient called: entry={}", entryId);
     }
@@ -363,8 +395,14 @@ public class SyncEventProcessor {
 
         guardStateTransition(entry, QueueEntryState.COMPLETED);
         entry.setState(QueueEntryState.COMPLETED);
-        entry.setCompletedAt(event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis());
+        long completedAt = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
+        entry.setCompletedAt(completedAt);
         queueEntryRepository.save(entry);
+
+        // Consultation time: how long the consultation lasted (calledAt to completedAt)
+        if (entry.getCalledAt() != null && completedAt > entry.getCalledAt()) {
+            appMetrics.recordQueueConsultationTime(completedAt - entry.getCalledAt());
+        }
 
         // Patient stats (totalVisits, lastVisitDate, lastComplaintTags) are updated
         // only in processVisitSaved, which creates the actual Visit record.
@@ -373,7 +411,7 @@ public class SyncEventProcessor {
         log.info("Patient consultation completed: entry={}", entryId);
     }
 
-    private void processQueuePaused(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
+    private boolean processQueuePaused(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
         String queueId = event.getTargetEntity();
 
         Queue queue = queueRepository.findByUuid(queueId)
@@ -384,7 +422,7 @@ public class SyncEventProcessor {
         }
         if (queue.getStatus() == QueueStatus.PAUSED) {
             log.info("Queue {} already paused, ignoring", queueId);
-            return;
+            return false;
         }
 
         queue.setStatus(QueueStatus.PAUSED);
@@ -392,9 +430,10 @@ public class SyncEventProcessor {
         queueRepository.save(queue);
 
         log.info("Queue paused: {}", queueId);
+        return true;
     }
 
-    private void processQueueResumed(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
+    private boolean processQueueResumed(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
         String queueId = event.getTargetEntity();
 
         Queue queue = queueRepository.findByUuid(queueId)
@@ -405,7 +444,7 @@ public class SyncEventProcessor {
         }
         if (queue.getStatus() == QueueStatus.ACTIVE) {
             log.info("Queue {} already active, ignoring", queueId);
-            return;
+            return false;
         }
 
         if (queue.getPauseStartTime() != null) {
@@ -421,10 +460,11 @@ public class SyncEventProcessor {
         queueRepository.save(queue);
 
         log.info("Queue resumed: {}", queueId);
+        return true;
     }
 
     @SuppressWarnings("unchecked")
-    private void processQueueEnded(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
+    private boolean processQueueEnded(SyncPushRequest.SyncEvent event, Map<String, Object> payload) {
         String queueId = event.getTargetEntity();
         List<String> stashedEntryIds = (List<String>) payload.get("stashedEntryIds");
 
@@ -433,7 +473,7 @@ public class SyncEventProcessor {
 
         if (queue.getStatus() == QueueStatus.ENDED) {
             log.info("Queue {} already ended, ignoring", queueId);
-            return;
+            return false;
         }
 
         queue.setStatus(QueueStatus.ENDED);
@@ -441,16 +481,36 @@ public class SyncEventProcessor {
         queue.setEndedAt(Instant.ofEpochMilli(endedMs));
         queueRepository.save(queue);
 
+        // Queue metrics
+        appMetrics.recordQueueEnded();
+        if (queue.getStartedAt() != null) {
+            long durationMs = endedMs - queue.getStartedAt().toEpochMilli();
+            if (durationMs > 0) {
+                appMetrics.recordQueueDuration(durationMs);
+            }
+        }
+
         // Auto-complete any currently serving patients
         List<QueueEntry> allEntries = queueEntryRepository.findByQueueIdOrderByPositionAsc(queue.getId());
+        int autoCompleted = 0;
         for (QueueEntry entry : allEntries) {
             if (entry.getState() == QueueEntryState.CALLED) {
                 entry.setState(QueueEntryState.COMPLETED);
                 entry.setCompletedAt(endedMs);
                 queueEntryRepository.save(entry);
+                autoCompleted++;
                 log.info("Auto-completed now_serving entry {} on queue end", entry.getUuid());
             }
         }
+        if (autoCompleted > 0) {
+            appMetrics.recordQueueAutoCompleted(autoCompleted);
+        }
+
+        // Patients per session (all completed, including auto-completed)
+        int patientsServed = (int) allEntries.stream()
+                .filter(e -> e.getState() == QueueEntryState.COMPLETED)
+                .count();
+        appMetrics.recordQueuePatientsPerSession(patientsServed);
 
         if (stashedEntryIds != null && !stashedEntryIds.isEmpty()) {
             for (String entryId : stashedEntryIds) {
@@ -467,6 +527,7 @@ public class SyncEventProcessor {
         } else {
             log.info("Queue ended: {}, no entries stashed", queueId);
         }
+        return true;
     }
 
     @SuppressWarnings("unchecked")
@@ -500,6 +561,7 @@ public class SyncEventProcessor {
                     .build();
             newQueue.setUuid(newQueueId);
             queueRepository.save(newQueue);
+            appMetrics.recordQueueStarted();
             log.info("Created new queue for stash import: {}", newQueueId);
         }
 
@@ -650,7 +712,7 @@ public class SyncEventProcessor {
     }
 
     @SuppressWarnings("unchecked")
-    private void processBillCreated(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
+    private boolean processBillCreated(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
         String billId = event.getTargetEntity();
         String patientId = (String) payload.get("patientId");
         String queueEntryId = (String) payload.get("queueEntryId");
@@ -664,7 +726,7 @@ public class SyncEventProcessor {
 
         if (billRepository.findByUuid(billId).isPresent()) {
             log.info("Bill {} already exists, skipping", billId);
-            return;
+            return false;
         }
 
         Patient patient = patientRepository.findByUuid(patientId)
@@ -742,6 +804,7 @@ public class SyncEventProcessor {
         if (Boolean.TRUE.equals(sendSMS)) {
             log.info("SMS bill notification requested for bill {}", billId);
         }
+        return true;
     }
 
     private void processBillUpdated(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
@@ -774,7 +837,7 @@ public class SyncEventProcessor {
     }
 
     @SuppressWarnings("unchecked")
-    private void processBillPaid(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
+    private boolean processBillPaid(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
         String billId = event.getTargetEntity();
         String patientId = (String) payload.get("patientId");
         String queueEntryId = (String) payload.get("queueEntryId");
@@ -788,7 +851,7 @@ public class SyncEventProcessor {
 
         if (billRepository.findByUuid(billId).isPresent()) {
             log.info("Bill {} already exists, skipping", billId);
-            return;
+            return false;
         }
 
         Patient patient = patientRepository.findByUuid(patientId)
@@ -869,6 +932,7 @@ public class SyncEventProcessor {
         }
 
         log.info("Bill {} created+paid via sync for patient {} (total: {})", billId, patientId, totalAmount);
+        return true;
     }
 
     // ==================== Utilities ====================

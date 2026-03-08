@@ -1,11 +1,13 @@
 package com.clinicos.service.service;
 
+import com.clinicos.service.config.AppMetrics;
 import com.clinicos.service.dto.response.ExtractionResponse;
 import com.clinicos.service.exception.BusinessException;
 import com.clinicos.service.service.ai.AiProvider;
 import com.clinicos.service.service.ai.AiProviderException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ public class AiExtractionService {
 
     private final AiProvider aiProvider;
     private final ObjectMapper objectMapper;
+    private final AppMetrics appMetrics;
 
     @Value("${clinicos.ai.enabled:true}")
     private boolean aiEnabled;
@@ -56,9 +59,10 @@ public class AiExtractionService {
     // ==================== EXTRACTION SCHEMA ====================
     private static final Map<String, Object> EXTRACTION_SCHEMA = buildExtractionSchema();
 
-    public AiExtractionService(AiProvider aiProvider, ObjectMapper objectMapper) {
+    public AiExtractionService(AiProvider aiProvider, ObjectMapper objectMapper, AppMetrics appMetrics) {
         this.aiProvider = aiProvider;
         this.objectMapper = objectMapper;
+        this.appMetrics = appMetrics;
         log.info("AI extraction service initialized with provider: {}", aiProvider.getClass().getSimpleName());
     }
 
@@ -68,9 +72,11 @@ public class AiExtractionService {
      */
     public ExtractionResponse extract(String transcript, Map<String, Object> currentState) {
         if (!aiEnabled) {
+            appMetrics.recordAiExtraction("disabled", 0);
             throw new BusinessException("SERVICE_UNAVAILABLE", "AI extraction is not available", false);
         }
 
+        Timer.Sample timerSample = appMetrics.startTimer();
         String userPrompt = buildUserPrompt(transcript, currentState);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
@@ -79,25 +85,32 @@ public class AiExtractionService {
                 ExtractionResponse result = parseAndValidate(responseBody);
 
                 if (result != null) {
+                    appMetrics.recordAiExtraction("success", attempt);
+                    appMetrics.recordAiDuration(timerSample, "success");
                     log.info("AI extraction succeeded on attempt {}", attempt);
                     return result;
                 }
 
                 // Malformed response — retry
+                appMetrics.recordAiExtraction("malformed", attempt);
                 log.warn("Attempt {}/{}: Malformed response from AI provider, retrying", attempt, maxRetries);
 
             } catch (AiProviderException e) {
                 if (!e.isRetryable()) {
+                    appMetrics.recordAiExtraction("error", attempt);
+                    appMetrics.recordAiDuration(timerSample, "error");
                     log.error("Non-retryable AI error: {} (status {})", e.getMessage(), e.getStatusCode());
                     throw new BusinessException("AI_ERROR", "AI extraction failed: " + e.getMessage(), false);
                 }
 
+                appMetrics.recordAiExtraction("retry", attempt);
                 int delay = e.getRetryDelayMs() > 0 ? e.getRetryDelayMs() : calculateBackoff(attempt);
                 log.warn("Attempt {}/{}: {} (status {}), retrying in {}ms",
                         attempt, maxRetries, e.getMessage(), e.getStatusCode(), delay);
                 sleep(delay);
 
             } catch (Exception e) {
+                appMetrics.recordAiExtraction("unexpected_error", attempt);
                 int delay = calculateBackoff(attempt);
                 log.warn("Attempt {}/{}: Unexpected error ({}), retrying in {}ms",
                         attempt, maxRetries, e.getMessage(), delay);
@@ -105,6 +118,8 @@ public class AiExtractionService {
             }
         }
 
+        appMetrics.recordAiExtraction("exhausted", maxRetries);
+        appMetrics.recordAiDuration(timerSample, "error");
         throw new BusinessException("AI_ERROR", "AI extraction failed after " + maxRetries + " attempts", true);
     }
 

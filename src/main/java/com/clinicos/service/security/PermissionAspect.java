@@ -1,7 +1,9 @@
 package com.clinicos.service.security;
 
+import com.clinicos.service.config.AppMetrics;
 import com.clinicos.service.exception.InsufficientPermissionException;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
@@ -23,8 +25,11 @@ import java.util.Arrays;
  */
 @Aspect
 @Component
+@RequiredArgsConstructor
 @Slf4j
 public class PermissionAspect {
+
+    private final AppMetrics appMetrics;
 
     @Before("@annotation(com.clinicos.service.security.RequirePermission)")
     public void checkPermission(JoinPoint joinPoint) {
@@ -65,6 +70,8 @@ public class PermissionAspect {
                         userDetails.getUuid(),
                         method.getName(),
                         permission);
+
+                appMetrics.recordAuth("access_denied", "failure", "insufficient_permission");
 
                 // Pass denied permission to AuditInterceptor via request attribute
                 ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();

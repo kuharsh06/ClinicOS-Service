@@ -1,5 +1,6 @@
 package com.clinicos.service.service;
 
+import com.clinicos.service.config.AppMetrics;
 import com.clinicos.service.dto.request.RefreshTokenRequest;
 import com.clinicos.service.dto.request.SendOtpRequest;
 import com.clinicos.service.dto.request.VerifyOtpRequest;
@@ -42,6 +43,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final OtpAttemptService otpAttemptService;
     private final SmsProvider smsProvider;
+    private final AppMetrics appMetrics;
 
     @org.springframework.beans.factory.annotation.Value("${clinicos.sms.enabled:false}")
     private boolean smsEnabled;
@@ -79,15 +81,21 @@ public class AuthService {
             try {
                 SmsResult result = smsProvider.sendOtp(phone, otp);
                 if (!result.isSuccess()) {
+                    appMetrics.recordSms("failure");
+                    appMetrics.recordAuth("send", "failure");
                     log.error("SMS sending failed for {}: code={}, message={}", phone, result.getStatusCode(), result.getErrorMessage());
                     throw new BusinessException("SMS_SEND_FAILED", "Failed to send OTP. Please try again.");
                 }
+                appMetrics.recordSms("success");
             } catch (SmsProviderException e) {
+                appMetrics.recordSms("failure");
+                appMetrics.recordAuth("send", "failure");
                 log.error("SMS provider error for {}: {}", phone, e.getMessage());
                 throw new BusinessException("SMS_SEND_FAILED", "Failed to send OTP. Please try again.");
             }
         }
 
+        appMetrics.recordAuth("send", "success");
         return OtpResponse.builder()
                 .requestId(otpRequest.getUuid())
                 .expiresInSeconds(OTP_EXPIRY_SECONDS)
@@ -103,20 +111,26 @@ public class AuthService {
         // Find OTP request by UUID
         OtpRequest otpRequest = otpRequestRepository
                 .findByUuid(requestId)
-                .orElseThrow(() -> new BusinessException("OTP_REQUEST_NOT_FOUND", "No OTP request found"));
+                .orElseThrow(() -> {
+                    appMetrics.recordAuth("verify", "failure", "not_found");
+                    return new BusinessException("OTP_REQUEST_NOT_FOUND", "No OTP request found");
+                });
 
         // Check if already verified
         if (otpRequest.getIsVerified()) {
+            appMetrics.recordAuth("verify", "failure", "already_verified");
             throw new BusinessException("OTP_ALREADY_VERIFIED", "OTP already verified");
         }
 
         // Check expiry
         if (otpRequest.getExpiresAt().isBefore(Instant.now())) {
+            appMetrics.recordAuth("verify", "failure", "expired");
             throw new BusinessException("OTP_EXPIRED", "OTP has expired");
         }
 
         // Check attempts
         if (otpRequest.getVerifyAttempts() >= MAX_OTP_ATTEMPTS) {
+            appMetrics.recordAuth("verify", "failure", "max_attempts");
             throw new BusinessException("OTP_MAX_ATTEMPTS", "Maximum OTP attempts exceeded");
         }
 
@@ -124,6 +138,7 @@ public class AuthService {
         if (!passwordEncoder.matches(request.getOtp(), otpRequest.getOtpHash())) {
             // Increment failed attempts in separate transaction (persists even on rollback)
             otpAttemptService.incrementVerifyAttempts(otpRequest.getId());
+            appMetrics.recordAuth("verify", "failure", "invalid_otp");
             // retryable: true - user can try entering OTP again
             throw new BusinessException("OTP_INVALID", "Invalid OTP", true);
         }
@@ -149,6 +164,9 @@ public class AuthService {
 
         if (user.getName() == null) {
             isNewUser = true;
+            appMetrics.recordAuth("verify", "success", "new_user");
+        } else {
+            appMetrics.recordAuth("verify", "success", "returning_user");
         }
 
         // Create or update device
@@ -205,24 +223,31 @@ public class AuthService {
         String deviceId = request.getDeviceId();
 
         // Validate token
-        if (!jwtTokenProvider.validateToken(refreshToken)) {
+        String validationFailure = jwtTokenProvider.validateToken(refreshToken);
+        if (validationFailure != null) {
+            appMetrics.recordAuth("refresh", "failure", "token_" + validationFailure);
             throw new BusinessException("TOKEN_INVALID", "Invalid refresh token");
         }
 
         if (!jwtTokenProvider.isRefreshToken(refreshToken)) {
+            appMetrics.recordAuth("refresh", "failure", "not_refresh_token");
             throw new BusinessException("TOKEN_INVALID", "Not a refresh token");
         }
 
         // Verify device ID matches
         String tokenDeviceId = jwtTokenProvider.getDeviceId(refreshToken);
         if (!deviceId.equals(tokenDeviceId)) {
+            appMetrics.recordAuth("refresh", "failure", "device_mismatch");
             throw new BusinessException("DEVICE_MISMATCH", "Device ID mismatch");
         }
 
         // Check if token is revoked in database
         String tokenHash = TokenHashUtil.hash(refreshToken);
         RefreshToken storedToken = refreshTokenRepository.findByTokenHashAndIsRevokedFalse(tokenHash)
-                .orElseThrow(() -> new BusinessException("TOKEN_REVOKED", "Refresh token has been revoked"));
+                .orElseThrow(() -> {
+                    appMetrics.recordAuth("refresh", "failure", "token_revoked");
+                    return new BusinessException("TOKEN_REVOKED", "Refresh token has been revoked");
+                });
 
         // Get user from stored token (more secure than parsing from JWT)
         User user = storedToken.getUser();
@@ -247,6 +272,8 @@ public class AuthService {
 
         refreshTokenRepository.save(refreshTokenEntity);
 
+        appMetrics.recordAuth("refresh", "success");
+
         // Build AuthUser with latest org context (roles/permissions may have changed)
         AuthResponse.AuthUser authUser = buildAuthUser(user);
 
@@ -261,6 +288,7 @@ public class AuthService {
     @Transactional
     public void logout(String deviceId, Integer userId) {
         refreshTokenRepository.revokeAllByDeviceId(deviceId);
+        appMetrics.recordAuth("logout", "success");
         log.info("User {} logged out from device {}", userId, deviceId);
     }
 

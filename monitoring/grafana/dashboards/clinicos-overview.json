@@ -1,0 +1,535 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+
+    {
+      "type": "row",
+      "title": "Health Overview",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "title": "Service Reliability",
+      "description": "Success rate over time. Dip = something broke. Background zones: green >95%, yellow 90-95%, red <90%.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 18, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.9 },
+              { "color": "green", "value": 0.95 }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": { "mode": "area" },
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(auth_events_total{action=\"verify\",status=\"success\"}[15m])) / sum(rate(auth_events_total{action=\"verify\"}[15m]))",
+          "legendFormat": "Auth (OTP Verify)"
+        },
+        {
+          "expr": "sum(rate(ai_extraction_total{status=\"success\"}[15m])) / sum(rate(ai_extraction_total{status=~\"success|error|exhausted\"}[15m]))",
+          "legendFormat": "AI Extraction"
+        },
+        {
+          "expr": "sum(rate(sync_events_total{status=\"applied\"}[15m])) / sum(rate(sync_events_total[15m]))",
+          "legendFormat": "Sync Events"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\",status=~\"2..\"}[15m])) / sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[15m]))",
+          "legendFormat": "API (2xx)"
+        }
+      ]
+    },
+    {
+      "title": "Queue Sessions",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "queue_started_total",
+          "legendFormat": "Started"
+        },
+        {
+          "expr": "queue_ended_total",
+          "legendFormat": "Ended"
+        },
+        {
+          "expr": "queue_auto_completed_total",
+          "legendFormat": "Auto-Completed"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "Authentication & SMS",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "panels": []
+    },
+    {
+      "title": "OTP Send",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Success" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(auth_events_total{action=\"send\",status=\"success\"}[5m]))",
+          "legendFormat": "Success"
+        },
+        {
+          "expr": "sum by (reason) (increase(auth_events_total{action=\"send\",status=\"failure\"}[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "title": "OTP Verify",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Success" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(auth_events_total{action=\"verify\",status=\"success\"}[5m]))",
+          "legendFormat": "Success"
+        },
+        {
+          "expr": "sum by (reason) (increase(auth_events_total{action=\"verify\",status=\"failure\"}[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "title": "SMS Delivery",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Failure" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Success" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "increase(sms_send_total{status=\"success\"}[5m])",
+          "legendFormat": "Success"
+        },
+        {
+          "expr": "increase(sms_send_total{status=\"failure\"}[5m])",
+          "legendFormat": "Failure"
+        }
+      ]
+    },
+    {
+      "title": "JWT Rejections by Reason",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (reason) (increase(auth_events_total{action=\"jwt_rejected\"}[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "API Performance",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "panels": []
+    },
+    {
+      "title": "API Traffic by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (uri, method) (increase(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[5m]))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ]
+    },
+    {
+      "title": "API Status Codes",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "2xx Success" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "4xx Client Error" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "5xx Server Error" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(http_server_requests_seconds_count{uri!~\".*actuator.*\",status=~\"2..\"}[5m]))",
+          "legendFormat": "2xx Success"
+        },
+        {
+          "expr": "sum(increase(http_server_requests_seconds_count{uri!~\".*actuator.*\",status=~\"4..\"}[5m]))",
+          "legendFormat": "4xx Client Error"
+        },
+        {
+          "expr": "sum(increase(http_server_requests_seconds_count{uri!~\".*actuator.*\",status=~\"5..\"}[5m]))",
+          "legendFormat": "5xx Server Error"
+        }
+      ]
+    },
+    {
+      "title": "API Response Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (uri) (rate(http_server_requests_seconds_sum{uri!~\".*actuator.*\"}[5m])) / sum by (uri) (rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[5m]))",
+          "legendFormat": "avg {{uri}}"
+        },
+        {
+          "expr": "max by (uri) (http_server_requests_seconds_max{uri!~\".*actuator.*\"} > 0)",
+          "legendFormat": "max {{uri}}"
+        }
+      ]
+    },
+    {
+      "title": "API Reliability by Endpoint",
+      "description": "Per-endpoint success rate. Spot which endpoint is failing.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.9 },
+              { "color": "green", "value": 0.95 }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": { "mode": "area" },
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (uri) (rate(http_server_requests_seconds_count{uri!~\".*actuator.*\",status=~\"2..\"}[15m])) / sum by (uri) (rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[15m]))",
+          "legendFormat": "{{uri}}"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "AI & Sync",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "panels": []
+    },
+    {
+      "title": "AI Extraction Volume",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Success" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Error" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Exhausted" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(ai_extraction_total{status=\"success\"}[5m]))",
+          "legendFormat": "Success"
+        },
+        {
+          "expr": "sum(increase(ai_extraction_total{status=\"error\"}[5m]))",
+          "legendFormat": "Error"
+        },
+        {
+          "expr": "sum(increase(ai_extraction_total{status=\"exhausted\"}[5m]))",
+          "legendFormat": "Exhausted"
+        }
+      ]
+    },
+    {
+      "title": "AI Processing Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(ai_extraction_duration_seconds_sum{status=\"success\"}[5m])) / sum(rate(ai_extraction_duration_seconds_count{status=\"success\"}[5m]))",
+          "legendFormat": "Avg Duration"
+        }
+      ]
+    },
+    {
+      "title": "Sync Volume by Type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (type, status) (increase(sync_events_total[5m]))",
+          "legendFormat": "{{type}} ({{status}})"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "Queue Operations",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 },
+      "panels": []
+    },
+    {
+      "title": "Patient Wait vs Consultation",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 45 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(queue_wait_time_seconds_sum[5m]) / rate(queue_wait_time_seconds_count[5m])",
+          "legendFormat": "Avg Wait"
+        },
+        {
+          "expr": "rate(queue_consultation_time_seconds_sum[5m]) / rate(queue_consultation_time_seconds_count[5m])",
+          "legendFormat": "Avg Consultation"
+        }
+      ]
+    },
+    {
+      "title": "Queue Session Length",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 45 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(queue_duration_seconds_sum[5m]) / rate(queue_duration_seconds_count[5m])",
+          "legendFormat": "Avg Session Duration"
+        }
+      ]
+    },
+    {
+      "title": "Patients per Session",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 45 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(queue_patients_per_session_sum[5m]) / rate(queue_patients_per_session_count[5m])",
+          "legendFormat": "Avg Patients"
+        },
+        {
+          "expr": "queue_patients_per_session_max",
+          "legendFormat": "Max Patients"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "System",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 },
+      "panels": []
+    },
+    {
+      "title": "JVM Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 54 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+          "legendFormat": "Heap Used ({{id}})"
+        },
+        {
+          "expr": "jvm_memory_max_bytes{area=\"heap\"}",
+          "legendFormat": "Heap Max ({{id}})"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["clinicos"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "ClinicOS Overview",
+  "uid": "clinicos-overview"
+}
