@@ -5,6 +5,33 @@
 
 ---
 
+## Current Status: STOPPED
+
+Staging is currently **stopped and disabled** to free memory on the 2GB droplet (only production runs).
+
+- Service: `clinicos-staging` — stopped and disabled (won't auto-start on reboot)
+- Database: `clinicos_test` — **dropped** (must be recreated before starting)
+- Config files still on server: `application-staging.properties`, `clinicos-staging.service`, nginx server block — all harmless while stopped
+
+### To bring staging back up
+
+```bash
+ssh root@64.227.188.143
+
+# 1. Recreate the database
+mysql -u root -e "CREATE DATABASE clinicos_test;"
+sed 's/USE clinicos;/USE clinicos_test;/' /opt/clinicos/schema.sql | mysql -u root
+
+# 2. Re-enable and start the service
+systemctl enable clinicos-staging
+systemctl start clinicos-staging
+
+# 3. Verify (wait ~30-40s for JVM startup)
+curl https://staging.clinicos.codingrippler.com/actuator/health
+```
+
+---
+
 ## Access
 
 | Item | Value |
