@@ -393,7 +393,42 @@ Empty payload. Server computes pause duration from `deviceTimestamp`.
 
 ---
 
-## 10. visit_saved
+## 10. stash_dismissed
+
+**Who:** assistant, doctor
+**targetEntity:** source queue UUID (the ENDED queue whose stash is being dismissed)
+**targetTable:** `"queue_entry"`
+
+```json
+{
+  "eventType": "stash_dismissed",
+  "targetEntity": "queue-ended-session-uuid",
+  "targetTable": "queue_entry",
+  "payload": {
+    "doctorId": "4b06dee4-e7a3-4ee8-8ca5-147a492eaca3",
+    "importedEntryIds": ["entry-001", "entry-002", "entry-003"]
+  }
+}
+```
+
+| Payload Field | Type | Required | Notes |
+|---------------|------|----------|-------|
+| `doctorId` | string | **Yes** | Doctor's user UUID |
+| `importedEntryIds` | string[] | Yes | Entry UUIDs to dismiss from stash |
+
+**Server behavior:**
+1. Validates source queue exists and is in `ended` state
+2. For each entry: skips if not found or not in `stashed` state
+3. Marks matching entries as `REMOVED` with reason `"dismissed"`
+4. `previousQueueStash` becomes empty (or reduced) on next fetch
+
+**Idempotent:** If entries are already removed (imported or dismissed), they are silently skipped. No error.
+
+**Conflict with `stash_imported`:** Both consume stashed entries. Whichever syncs first wins. The second becomes a no-op.
+
+---
+
+## 11. visit_saved
 
 **Who:** doctor only
 **targetEntity:** patient UUID (NOT visit UUID)
@@ -460,7 +495,7 @@ Empty payload. Server computes pause duration from `deviceTimestamp`.
 
 ---
 
-## 11. bill_paid (create bill + mark paid — single event)
+## 12. bill_paid (create bill + mark paid — single event)
 
 **Who:** assistant, doctor
 **targetEntity:** bill UUID (client-generated)
@@ -551,6 +586,7 @@ now_serving → completed    (mark_complete)
             → waiting      (step_out — goes to END of queue)
 
 stashed     → waiting      (stash_imported — new entry in new queue)
+            → removed      (stash_dismissed — dismissed from stash)
 
 completed   → (terminal)
 removed     → (terminal)
@@ -579,6 +615,7 @@ ended   → (terminal — pause/resume rejected)
 | `queue_resumed` | Yes | Yes | No |
 | `queue_ended` | Yes | Yes | No |
 | `stash_imported` | Yes | Yes | No |
+| `stash_dismissed` | Yes | Yes | No |
 | `visit_saved` | No | **Yes** | No |
 | `bill_paid` | Yes | Yes | No |
 

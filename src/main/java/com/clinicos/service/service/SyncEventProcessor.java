@@ -68,6 +68,7 @@ public class SyncEventProcessor {
             Map.entry("queue_resumed", List.of("assistant", "doctor")),
             Map.entry("queue_ended", List.of("assistant", "doctor")),
             Map.entry("stash_imported", List.of("assistant", "doctor")),
+            Map.entry("stash_dismissed", List.of("assistant", "doctor")),
             Map.entry("visit_saved", List.of("doctor")),
             Map.entry("bill_created", List.of("assistant", "doctor")),
             Map.entry("bill_updated", List.of("assistant", "doctor")),
@@ -215,6 +216,7 @@ public class SyncEventProcessor {
             case "queue_resumed" -> processQueueResumed(event, payload);
             case "queue_ended" -> processQueueEnded(event, payload);
             case "stash_imported" -> { processStashImported(event, user, org, payload); yield true; }
+            case "stash_dismissed" -> processStashDismissed(event, user, org, payload);
             case "visit_saved" -> { processVisitSaved(event, user, org, payload); yield true; }
             case "bill_created" -> processBillCreated(event, user, org, payload);
             case "bill_updated" -> { processBillUpdated(event, user, org, payload); yield true; }
@@ -477,14 +479,13 @@ public class SyncEventProcessor {
         }
 
         queue.setStatus(QueueStatus.ENDED);
-        long endedMs = event.getDeviceTimestamp() != null ? event.getDeviceTimestamp() : System.currentTimeMillis();
-        queue.setEndedAt(Instant.ofEpochMilli(endedMs));
+        queue.setEndedAt(Instant.now());
         queueRepository.save(queue);
 
         // Queue metrics
         appMetrics.recordQueueEnded();
         if (queue.getStartedAt() != null) {
-            long durationMs = endedMs - queue.getStartedAt().toEpochMilli();
+            long durationMs = queue.getEndedAt().toEpochMilli() - queue.getStartedAt().toEpochMilli();
             if (durationMs > 0) {
                 appMetrics.recordQueueDuration(durationMs);
             }
@@ -496,7 +497,7 @@ public class SyncEventProcessor {
         for (QueueEntry entry : allEntries) {
             if (entry.getState() == QueueEntryState.CALLED) {
                 entry.setState(QueueEntryState.COMPLETED);
-                entry.setCompletedAt(endedMs);
+                entry.setCompletedAt(queue.getEndedAt().toEpochMilli());
                 queueEntryRepository.save(entry);
                 autoCompleted++;
                 log.info("Auto-completed now_serving entry {} on queue end", entry.getUuid());
@@ -577,6 +578,10 @@ public class SyncEventProcessor {
                 if (!allowed.contains(QueueEntryState.WAITING)) continue;
 
                 Queue sourceQueue = stashedEntry.getQueue();
+                if (!sourceQueue.getDoctor().getId().equals(doctor.getId())) {
+                    log.warn("Entry {} belongs to doctor {}, not {}, skipping", entryId, sourceQueue.getDoctor().getId(), doctor.getId());
+                    continue;
+                }
 
                 QueueEntry newEntry = QueueEntry.builder()
                         .queue(newQueue)
@@ -609,6 +614,54 @@ public class SyncEventProcessor {
 
             log.info("Stash imported: {} entries to queue {}", importedEntryIds.size(), newQueueId);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean processStashDismissed(SyncPushRequest.SyncEvent event, User user, Organization org, Map<String, Object> payload) {
+        String sourceQueueId = event.getTargetEntity();
+        List<String> importedEntryIds = (List<String>) payload.get("importedEntryIds");
+        String doctorId = (String) payload.get("doctorId");
+
+        OrgMember doctor = orgMemberRepository.findByOrganizationIdWithUser(org.getId())
+                .stream()
+                .filter(m -> m.getUser().getUuid().equals(doctorId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Doctor not found: " + doctorId));
+
+        Queue sourceQueue = queueRepository.findByUuid(sourceQueueId)
+                .orElseThrow(() -> new RuntimeException("Source queue not found: " + sourceQueueId));
+
+        if (!sourceQueue.getDoctor().getId().equals(doctor.getId())) {
+            throw new IllegalStateException("Queue " + sourceQueueId + " does not belong to doctor " + doctorId);
+        }
+
+        if (sourceQueue.getStatus() != QueueStatus.ENDED) {
+            throw new IllegalStateException("Can only dismiss stash from an ended queue");
+        }
+
+        int dismissed = 0;
+
+        if (importedEntryIds != null && !importedEntryIds.isEmpty()) {
+            for (String entryId : importedEntryIds) {
+                QueueEntry entry = queueEntryRepository.findByUuid(entryId).orElse(null);
+                if (entry == null) continue;
+                if (entry.getState() != QueueEntryState.STASHED) continue;
+
+                guardStateTransition(entry, QueueEntryState.REMOVED);
+                entry.setState(QueueEntryState.REMOVED);
+                entry.setRemovalReason("dismissed");
+                queueEntryRepository.save(entry);
+                dismissed++;
+            }
+        }
+
+        if (dismissed == 0) {
+            log.info("Stash dismiss: no stashed entries found for queue {}", sourceQueueId);
+            return false;
+        }
+
+        log.info("Stash dismissed: {} entries from queue {}", dismissed, sourceQueueId);
+        return true;
     }
 
     // ==================== Non-Queue Event Handlers ====================

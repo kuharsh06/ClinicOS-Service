@@ -44,7 +44,7 @@ public class SyncService {
     private static final Set<String> QUEUE_MUTATING_EVENTS = Set.of(
             "patient_added", "patient_removed", "call_now", "step_out",
             "mark_complete", "queue_paused", "queue_resumed", "queue_ended",
-            "stash_imported"
+            "stash_imported", "stash_dismissed"
     );
 
     /**
@@ -170,8 +170,8 @@ public class SyncService {
                 yield payload != null ? (String) payload.get("queueId") : null;
             }
 
-            // New queue (stash import target)
-            case "stash_imported" ->
+            // New queue (stash import target) / source queue (stash dismiss)
+            case "stash_imported", "stash_dismissed" ->
                     event.getTargetEntity();
 
             // Queue via entry lookup

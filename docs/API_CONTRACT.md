@@ -1935,6 +1935,7 @@ type SyncEventType =
   | "queue_resumed"
   | "queue_ended"
   | "stash_imported"
+  | "stash_dismissed"
   | "visit_saved" // SINGLE event for all clinical data
   | "bill_created"
   | "bill_updated";
@@ -2116,6 +2117,36 @@ type SyncEventType =
 //   5. New queue status → 'active'
 ```
 
+#### Event: `stash_dismissed`
+
+> **NEW in v3.2:** Dismiss stashed entries from a previous ended queue without importing them.
+
+```typescript
+// Allowed roles: assistant, doctor
+// Target table: queue_entry (stashed → removed)
+// State guard: entries must be in 'stashed' state; non-stashed entries are skipped
+// Idempotent: if entries are already removed (imported or dismissed), they are skipped
+{
+  eventType: 'stash_dismissed',
+  targetEntity: '<source_queue_id>',   // the ENDED queue whose stash is being dismissed
+  targetTable: 'queue_entry',
+  payload: {
+    doctorId: '<doctor_user_uuid>',
+    importedEntryIds: ['<entry_id_1>', '<entry_id_2>', ...],  // same field name as stash_imported
+  }
+}
+// Server-side effects:
+//   1. Validate source queue exists and is in 'ended' state
+//   2. For each entry: skip if not found or not in 'stashed' state
+//   3. Mark matching entries as state → 'removed', removalReason → 'dismissed'
+//   4. previousQueueStash becomes empty (or reduced) on next fetch
+//
+// Conflict with stash_imported:
+//   Both operations consume stashed entries. Whichever syncs first wins.
+//   The second event becomes a no-op (entries already removed).
+//   No data corruption — safe and idempotent.
+```
+
 #### Event: `visit_saved`
 
 ```typescript
@@ -2194,6 +2225,7 @@ const EVENT_ALLOWED_ROLES: Record<SyncEventType, UserRole[]> = {
   queue_resumed: ["assistant"],
   queue_ended: ["assistant"],
   stash_imported: ["assistant"],
+  stash_dismissed: ["assistant", "doctor"],
   visit_saved: ["doctor"], // clinical data — doctor only
   bill_created: ["assistant", "doctor"],
   bill_updated: ["assistant", "doctor"],
