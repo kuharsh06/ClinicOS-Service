@@ -17,7 +17,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -111,6 +118,11 @@ public class ImageService {
             // Currently holds entire file in memory (~10-20MB per upload). Acceptable for low concurrency
             // but should use file.transferTo(tempFile) + FileInputStream for production scale.
             byte[] fileBytes = file.getBytes();
+
+            // Strip EXIF metadata (GPS coordinates, camera info) from images before storage.
+            // Frontend also strips EXIF — this is a server-side safety layer.
+            fileBytes = stripExifMetadata(fileBytes, contentType);
+
             StorageService.StorageResult result = storageService.store(
                     storageKey, new ByteArrayInputStream(fileBytes), fileBytes.length, contentType);
 
@@ -322,6 +334,45 @@ public class ImageService {
     }
 
     // ==================== Helpers ====================
+
+    /**
+     * Strips EXIF metadata (GPS coordinates, camera info, etc.) from JPEG and PNG images
+     * by re-encoding through ImageIO, which discards all metadata.
+     * Non-image types (PDF, WebP) are returned unchanged.
+     */
+    private byte[] stripExifMetadata(byte[] fileBytes, String contentType) {
+        if (contentType == null) return fileBytes;
+        if (!contentType.equals("image/jpeg") && !contentType.equals("image/png")) {
+            return fileBytes;
+        }
+
+        try {
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(fileBytes));
+            if (image == null) return fileBytes;
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+            if (contentType.equals("image/jpeg")) {
+                ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
+                ImageWriteParam param = writer.getDefaultWriteParam();
+                param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                param.setCompressionQuality(0.95f);
+                try (ImageOutputStream ios = ImageIO.createImageOutputStream(out)) {
+                    writer.setOutput(ios);
+                    writer.write(null, new IIOImage(image, null, null), param);
+                }
+                writer.dispose();
+            } else {
+                ImageIO.write(image, "png", out);
+            }
+
+            log.debug("EXIF metadata stripped from {} ({} -> {} bytes)", contentType, fileBytes.length, out.size());
+            return out.toByteArray();
+        } catch (Exception e) {
+            log.warn("Failed to strip EXIF metadata, storing original: {}", e.getMessage());
+            return fileBytes;
+        }
+    }
 
     private ImageListResponse toListResponse(List<VisitImage> images, int pageSize) {
         boolean hasMore = images.size() > pageSize;

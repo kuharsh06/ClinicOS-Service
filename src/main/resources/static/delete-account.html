@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delete Account — ClinicOS</title>
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #1A1D26;
+      background: #F8F9FC;
+      min-height: 100vh;
+    }
+
+    /* Brand bar */
+    .brand {
+      text-align: center;
+      padding: 40px 16px 0;
+    }
+    .brand img {
+      width: 56px; height: 56px; border-radius: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .brand .app-name {
+      font-size: 16px; font-weight: 700; color: #1A1D26;
+      margin-top: 10px; letter-spacing: -0.3px;
+    }
+    .brand .page-title {
+      font-size: 24px; font-weight: 700; color: #1A1D26;
+      margin-top: 16px; letter-spacing: -0.5px;
+    }
+    .brand .page-desc {
+      font-size: 14px; color: #6B7186; margin-top: 6px; margin-bottom: 32px;
+    }
+
+    /* Container */
+    .container { max-width: 480px; margin: 0 auto; padding: 20px 16px 60px; }
+
+    /* Step indicator — matches app "Org → Role → Team" style */
+    .stepper {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0; margin-bottom: 32px; padding: 0 8px;
+    }
+    .stepper-item {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .stepper-circle {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600;
+      background: #E8EBF0; color: #9DA3B4;
+      transition: all 0.3s;
+      flex-shrink: 0;
+    }
+    .stepper-circle.active { background: #0D6B3F; color: #fff; }
+    .stepper-circle.done { background: #10B981; color: #fff; }
+    .stepper-circle.done::after { content: ''; }
+    .stepper-label {
+      font-size: 13px; font-weight: 500; color: #9DA3B4;
+      transition: color 0.3s;
+    }
+    .stepper-label.active { color: #1A1D26; }
+    .stepper-label.done { color: #10B981; }
+    .stepper-line {
+      width: 32px; height: 2px; background: #E8EBF0; margin: 0 6px;
+      transition: background 0.3s;
+    }
+    .stepper-line.done { background: #10B981; }
+
+    /* Card */
+    .card {
+      background: #fff; border-radius: 16px; padding: 24px 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+      border: 1px solid #E8EBF0;
+    }
+    .card h2 { font-size: 18px; font-weight: 700; color: #1A1D26; margin-bottom: 6px; }
+    .card .desc { font-size: 14px; color: #6B7186; margin-bottom: 20px; }
+
+    /* Form elements */
+    label {
+      display: block; font-size: 12px; font-weight: 600; color: #6B7186;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+    }
+    input[type="text"], input[type="tel"] {
+      width: 100%; padding: 14px 16px; background: #F4F5F9; border: 1.5px solid transparent;
+      border-radius: 12px; font-size: 16px; color: #1A1D26; outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    input::placeholder { color: #9DA3B4; }
+    input:focus { border-color: #0D6B3F; background: #fff; }
+
+    .phone-row { display: flex; gap: 8px; }
+    .phone-row .country-code { width: 76px; flex-shrink: 0; text-align: center; }
+    .phone-row .phone-input { flex: 1; }
+
+    /* Buttons */
+    button {
+      width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 16px;
+      font-weight: 600; cursor: pointer; margin-top: 16px; transition: all 0.2s;
+    }
+    .btn-brand { background: #0D6B3F; color: #fff; }
+    .btn-brand:hover { background: #094D2D; }
+    .btn-brand:disabled { background: #9DA3B4; cursor: not-allowed; }
+    .btn-danger { background: #DC2626; color: #fff; }
+    .btn-danger:hover { background: #B91C1C; }
+    .btn-danger:disabled { background: #D1D5DB; color: #9DA3B4; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent; color: #6B7186; border: 1.5px solid #E8EBF0;
+    }
+    .btn-ghost:hover { background: #F4F5F9; }
+
+    /* Error */
+    .error-msg { color: #DC2626; font-size: 13px; margin-top: 6px; min-height: 18px; }
+
+    /* Steps visibility */
+    .step { display: none; }
+    .step.active { display: block; }
+
+    /* Timer + resend */
+    .resend-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+    .timer-text { font-size: 13px; color: #9DA3B4; }
+    .resend-link {
+      font-size: 13px; font-weight: 600; color: #0D6B3F; cursor: pointer;
+      text-decoration: none; border: none; background: none; padding: 0;
+    }
+    .resend-link.disabled { color: #9DA3B4; cursor: not-allowed; }
+
+    /* Warning box */
+    .warning-box {
+      background: #FEF2F2; border: 1px solid #FECACA; border-radius: 12px;
+      padding: 16px; margin-bottom: 16px;
+    }
+    .warning-box p { font-size: 14px; color: #1A1D26; }
+    .warning-box ul { margin: 8px 0 0 18px; font-size: 13px; color: #6B7186; }
+    .warning-box li { margin: 4px 0; }
+
+    /* Success box */
+    .success-box {
+      background: #E8F5EE; border: 1px solid #A7F3D0; border-radius: 12px;
+      padding: 20px; text-align: center;
+    }
+    .success-box .check-icon {
+      width: 48px; height: 48px; border-radius: 50%; background: #10B981;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 12px;
+    }
+    .success-box .check-icon svg { width: 24px; height: 24px; }
+    .success-box h2 { font-size: 18px; color: #094D2D; margin-bottom: 8px; }
+    .success-box .date { font-size: 18px; font-weight: 700; color: #0D6B3F; margin: 12px 0; }
+    .success-box .note { font-size: 13px; color: #6B7186; }
+
+    /* Help text */
+    .help-text { font-size: 13px; color: #6B7186; margin: 12px 0 0; }
+
+    /* Links */
+    a { color: #0D6B3F; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Footer */
+    .footer {
+      text-align: center; margin-top: 32px; padding-top: 16px;
+      border-top: 1px solid #E8EBF0;
+    }
+    .footer a { color: #9DA3B4; font-size: 12px; }
+
+    @media (max-width: 600px) {
+      .container { padding: 16px 12px 48px; }
+      .stepper-label { display: none; }
+      .stepper-line { width: 40px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- Brand -->
+    <div class="brand">
+      <img src="assets/logo.png" alt="ClinicOS">
+      <div class="app-name">ClinicOS</div>
+      <div class="page-title">Delete Your Account</div>
+      <div class="page-desc">Verify your identity to proceed</div>
+    </div>
+
+    <!-- Step Indicator -->
+    <div class="stepper">
+      <div class="stepper-item">
+        <div class="stepper-circle active" id="dot1">1</div>
+        <span class="stepper-label active" id="lbl1">Verify</span>
+      </div>
+      <div class="stepper-line" id="line1"></div>
+      <div class="stepper-item">
+        <div class="stepper-circle" id="dot2">2</div>
+        <span class="stepper-label" id="lbl2">OTP</span>
+      </div>
+      <div class="stepper-line" id="line2"></div>
+      <div class="stepper-item">
+        <div class="stepper-circle" id="dot3">3</div>
+        <span class="stepper-label" id="lbl3">Confirm</span>
+      </div>
+    </div>
+
+    <!-- Step 1: Phone Number -->
+    <div class="step active" id="step1">
+      <div class="card">
+        <h2>Verify your identity</h2>
+        <p class="desc">Enter the phone number associated with your ClinicOS account.</p>
+        <label>Phone Number</label>
+        <div class="phone-row">
+          <input type="text" id="countryCode" class="country-code" value="+91" placeholder="+91">
+          <input type="tel" id="phone" class="phone-input" placeholder="10-digit number" maxlength="10" inputmode="numeric" pattern="[0-9]*">
+        </div>
+        <div class="error-msg" id="phoneError"></div>
+        <button class="btn-brand" id="sendOtpBtn" onclick="sendOtp()">Send OTP</button>
+      </div>
+    </div>
+
+    <!-- Step 2: OTP Verification -->
+    <div class="step" id="step2">
+      <div class="card">
+        <h2>Enter OTP</h2>
+        <p class="desc">We sent a 6-digit code to your phone number.</p>
+        <label>One-Time Password</label>
+        <input type="text" id="otp" placeholder="Enter 6-digit OTP" maxlength="6" inputmode="numeric" pattern="[0-9]*">
+        <div class="error-msg" id="otpError"></div>
+        <button class="btn-brand" id="verifyOtpBtn" onclick="verifyOtp()">Verify &amp; Continue</button>
+        <div class="resend-row">
+          <span class="timer-text" id="timerText"></span>
+          <span class="resend-link disabled" id="resendLink" onclick="resendOtp()">Resend OTP</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Confirm Deletion -->
+    <div class="step" id="step3">
+      <div class="card">
+        <h2>Confirm account deletion</h2>
+        <div class="warning-box">
+          <p><strong>This action cannot be easily undone.</strong></p>
+          <ul>
+            <li>Your account will be immediately deactivated</li>
+            <li>All authentication tokens will be revoked</li>
+            <li>Your organization membership will be removed</li>
+            <li>After 30 days, your personal information will be permanently deleted</li>
+            <li>Medical and financial records are retained as required by law</li>
+          </ul>
+        </div>
+        <p class="help-text">
+          To cancel within 30 days, contact
+          <a href="mailto:privacy@codingrippler.com">privacy@codingrippler.com</a>
+        </p>
+        <label style="margin-top: 16px;">Type DELETE to confirm</label>
+        <input type="text" id="confirmText" placeholder="DELETE" oninput="checkConfirmText()">
+        <div class="error-msg" id="deleteError"></div>
+        <button class="btn-danger" id="deleteBtn" onclick="deleteAccount()" disabled>Delete My Account</button>
+        <button class="btn-ghost" onclick="window.location.reload()" style="margin-top: 8px;">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Success -->
+    <div class="step" id="step4">
+      <div class="success-box">
+        <div class="check-icon">
+          <svg fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <h2>Account Deletion Scheduled</h2>
+        <p style="font-size: 14px; color: #6B7186;">Your account has been deactivated. Permanent deletion is scheduled for:</p>
+        <p class="date" id="deletionDate"></p>
+        <p class="note">
+          Changed your mind? Contact
+          <a href="mailto:privacy@codingrippler.com">privacy@codingrippler.com</a>
+          before the above date.
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <a href="https://clinicos.codingrippler.com/privacy">Privacy Policy</a>
+      <span style="color: #D1D5DB; margin: 0 8px;">&middot;</span>
+      <a href="https://clinicos.codingrippler.com/terms">Terms of Use</a>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    let requestId = '';
+    let accessToken = '';
+    let resendTimer = null;
+    let resendSeconds = 0;
+
+    function showStep(n) {
+      document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+      document.getElementById('step' + n).classList.add('active');
+      // Update stepper
+      for (let i = 1; i <= 3; i++) {
+        const dot = document.getElementById('dot' + i);
+        const lbl = document.getElementById('lbl' + i);
+        dot.classList.remove('active', 'done');
+        lbl.classList.remove('active', 'done');
+        if (i < n) {
+          dot.classList.add('done');
+          dot.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
+          lbl.classList.add('done');
+        } else {
+          dot.textContent = i;
+          if (i === n) { dot.classList.add('active'); lbl.classList.add('active'); }
+        }
+      }
+      // Lines
+      document.getElementById('line1').classList.toggle('done', n > 1);
+      document.getElementById('line2').classList.toggle('done', n > 2);
+    }
+
+    function setLoading(btnId, loading) {
+      const btn = document.getElementById(btnId);
+      btn.disabled = loading;
+      if (loading) {
+        btn.dataset.originalText = btn.textContent;
+        btn.textContent = 'Please wait\u2026';
+      } else {
+        btn.textContent = btn.dataset.originalText || btn.textContent;
+      }
+    }
+
+    function showError(id, msg) {
+      document.getElementById(id).textContent = msg;
+    }
+
+    function startResendTimer(seconds) {
+      resendSeconds = seconds;
+      const link = document.getElementById('resendLink');
+      const timerText = document.getElementById('timerText');
+      link.classList.add('disabled');
+
+      if (resendTimer) clearInterval(resendTimer);
+      resendTimer = setInterval(() => {
+        resendSeconds--;
+        if (resendSeconds <= 0) {
+          clearInterval(resendTimer);
+          timerText.textContent = '';
+          link.classList.remove('disabled');
+        } else {
+          timerText.textContent = 'Resend in ' + resendSeconds + 's';
+        }
+      }, 1000);
+      timerText.textContent = 'Resend in ' + resendSeconds + 's';
+    }
+
+    async function sendOtp() {
+      const phone = document.getElementById('phone').value.trim();
+      const countryCode = document.getElementById('countryCode').value.trim();
+      showError('phoneError', '');
+
+      if (!/^\d{10}$/.test(phone)) {
+        showError('phoneError', 'Please enter a valid 10-digit phone number.');
+        return;
+      }
+
+      setLoading('sendOtpBtn', true);
+      try {
+        const res = await fetch(API_BASE + '/v1/auth/otp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, countryCode })
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          showError('phoneError', data.error?.message || 'Failed to send OTP. Please try again.');
+          return;
+        }
+
+        requestId = data.data.requestId;
+        showStep(2);
+        startResendTimer(data.data.retryAfterSeconds || 30);
+        document.getElementById('otp').focus();
+      } catch (e) {
+        showError('phoneError', 'Network error. Please check your connection.');
+      } finally {
+        setLoading('sendOtpBtn', false);
+      }
+    }
+
+    async function verifyOtp() {
+      const otp = document.getElementById('otp').value.trim();
+      showError('otpError', '');
+
+      if (!/^\d{4,6}$/.test(otp)) {
+        showError('otpError', 'Please enter a valid OTP.');
+        return;
+      }
+
+      const deviceId = 'web-delete-' + Date.now();
+
+      setLoading('verifyOtpBtn', true);
+      try {
+        const res = await fetch(API_BASE + '/v1/auth/otp/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestId,
+            otp,
+            deviceId,
+            deviceInfo: {
+              platform: 'web',
+              osVersion: navigator.userAgent.slice(0, 20),
+              appVersion: '1.0.0',
+              deviceModel: 'Browser'
+            }
+          })
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          showError('otpError', data.error?.message || 'Invalid OTP. Please try again.');
+          return;
+        }
+
+        accessToken = data.data.accessToken;
+        showStep(3);
+        document.getElementById('confirmText').focus();
+      } catch (e) {
+        showError('otpError', 'Network error. Please check your connection.');
+      } finally {
+        setLoading('verifyOtpBtn', false);
+      }
+    }
+
+    async function resendOtp() {
+      if (resendSeconds > 0) return;
+      const phone = document.getElementById('phone').value.trim();
+      const countryCode = document.getElementById('countryCode').value.trim();
+      showError('otpError', '');
+
+      try {
+        const res = await fetch(API_BASE + '/v1/auth/otp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, countryCode })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          showError('otpError', data.error?.message || 'Failed to resend OTP.');
+          return;
+        }
+        requestId = data.data.requestId;
+        startResendTimer(data.data.retryAfterSeconds || 30);
+      } catch (e) {
+        showError('otpError', 'Network error. Please check your connection.');
+      }
+    }
+
+    function checkConfirmText() {
+      const val = document.getElementById('confirmText').value.trim();
+      document.getElementById('deleteBtn').disabled = val !== 'DELETE';
+    }
+
+    async function deleteAccount() {
+      const val = document.getElementById('confirmText').value.trim();
+      if (val !== 'DELETE') return;
+
+      showError('deleteError', '');
+      setLoading('deleteBtn', true);
+      try {
+        const res = await fetch(API_BASE + '/v1/users/me', {
+          method: 'DELETE',
+          headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': 'application/json'
+          }
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          showError('deleteError', data.error?.message || 'Failed to delete account. Please try again.');
+          return;
+        }
+
+        const deletionAt = data.data?.scheduledPermanentDeletionAt;
+        if (deletionAt) {
+          const date = new Date(deletionAt);
+          document.getElementById('deletionDate').textContent = date.toLocaleDateString('en-IN', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+          });
+        } else {
+          document.getElementById('deletionDate').textContent = 'Approximately 30 days from now';
+        }
+
+        showStep(4);
+      } catch (e) {
+        showError('deleteError', 'Network error. Please check your connection.');
+      } finally {
+        setLoading('deleteBtn', false);
+      }
+    }
+  </script>
+</body>
+</html>

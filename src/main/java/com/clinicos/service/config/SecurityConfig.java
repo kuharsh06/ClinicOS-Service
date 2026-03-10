@@ -49,6 +49,11 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").permitAll()
                         // Health check
                         .requestMatchers("/health").permitAll()
+                        // Static pages and assets
+                        .requestMatchers("/delete-account", "/delete-account.html").permitAll()
+                        .requestMatchers("/privacy", "/privacy-policy.html").permitAll()
+                        .requestMatchers("/terms", "/terms-of-use.html").permitAll()
+                        .requestMatchers("/assets/**").permitAll()
                         // Secure all other endpoints
                         .anyRequest().authenticated()
                 )
