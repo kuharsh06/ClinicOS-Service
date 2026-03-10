@@ -55,6 +55,9 @@ public enum AuditAction {
     // AI
     AI_EXTRACT("ai"),
 
+    // Speech
+    SPEECH_TOKEN("speech"),
+
     // Other
     VIEW_ANALYTICS("analytics"),
     SEND_SMS("sms");

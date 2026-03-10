@@ -75,6 +75,9 @@ public final class AuditActionMapping {
             // AI (1)
             Map.entry("POST:/v1/orgs/{orgId}/ai/extract", new ActionConfig(AuditAction.AI_EXTRACT)),
 
+            // Speech (1)
+            Map.entry("GET:/v1/orgs/{orgId}/speech/token", new ActionConfig(AuditAction.SPEECH_TOKEN)),
+
             // Other (2)
             Map.entry("GET:/v1/orgs/{orgId}/analytics", new ActionConfig(AuditAction.VIEW_ANALYTICS)),
             Map.entry("POST:/v1/orgs/{orgId}/sms/send", new ActionConfig(AuditAction.SEND_SMS))
