@@ -6,6 +6,7 @@ import lombok.Getter;
 public enum AuditAction {
 
     // Auth
+    ACCOUNT_DELETED("user"),
     OTP_REQUEST("auth"),
     OTP_VERIFY("auth"),
     TOKEN_REFRESH("auth"),

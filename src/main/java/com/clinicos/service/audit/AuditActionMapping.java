@@ -23,6 +23,9 @@ public final class AuditActionMapping {
      */
     public static final Map<String, ActionConfig> MAPPINGS = Map.ofEntries(
 
+            // User (1)
+            Map.entry("DELETE:/v1/users/me", new ActionConfig(AuditAction.ACCOUNT_DELETED)),
+
             // Auth (4)
             Map.entry("POST:/v1/auth/otp/send", new ActionConfig(AuditAction.OTP_REQUEST)),
             Map.entry("POST:/v1/auth/otp/verify", new ActionConfig(AuditAction.OTP_VERIFY)),

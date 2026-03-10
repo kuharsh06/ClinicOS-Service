@@ -3,6 +3,7 @@ package com.clinicos.service.repository;
 import com.clinicos.service.entity.Bill;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -78,4 +79,10 @@ public interface BillRepository extends JpaRepository<Bill, Integer> {
     @Query("SELECT COUNT(b), COALESCE(SUM(b.totalAmount), 0), COALESCE(SUM(CASE WHEN b.isPaid = true THEN b.totalAmount ELSE 0 END), 0) " +
             "FROM Bill b WHERE b.organization.id = :orgId AND b.createdAt BETWEEN :start AND :end")
     Object[] getBillSummaryByOrgAndDateRange(@Param("orgId") Integer orgId, @Param("start") Instant start, @Param("end") Instant end);
+
+    @Modifying
+    @Query("UPDATE Bill b SET b.doctorName = 'Deleted User' " +
+            "WHERE b.queueEntryId IN (SELECT qe.id FROM QueueEntry qe WHERE qe.queue.doctor.id IN :memberIds) " +
+            "AND b.doctorName <> 'Deleted User'")
+    int anonymizeDoctorNameByMemberIds(@Param("memberIds") List<Integer> memberIds);
 }

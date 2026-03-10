@@ -274,9 +274,9 @@ public class SyncEventProcessor {
         if (queue == null) {
             OrgMember doctor = orgMemberRepository.findByOrganizationIdWithUser(org.getId())
                     .stream()
-                    .filter(m -> m.getUser().getUuid().equals(doctorId))
+                    .filter(m -> m.getUser().getUuid().equals(doctorId) && m.getDeletedAt() == null)
                     .findFirst()
-                    .orElseThrow(() -> new RuntimeException("Doctor not found: " + doctorId));
+                    .orElseThrow(() -> new RuntimeException("Doctor not found or inactive: " + doctorId));
 
             List<Queue> existingActive = queueRepository.findByDoctorIdAndStatusIn(
                     doctor.getId(), List.of(QueueStatus.ACTIVE, QueueStatus.PAUSED));
@@ -539,9 +539,9 @@ public class SyncEventProcessor {
 
         OrgMember doctor = orgMemberRepository.findByOrganizationIdWithUser(org.getId())
                 .stream()
-                .filter(m -> m.getUser().getUuid().equals(doctorId))
+                .filter(m -> m.getUser().getUuid().equals(doctorId) && m.getDeletedAt() == null)
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("Doctor not found: " + doctorId));
+                .orElseThrow(() -> new RuntimeException("Doctor not found or inactive: " + doctorId));
 
         Queue newQueue = queueRepository.findByUuid(newQueueId).orElse(null);
         if (newQueue == null) {
@@ -624,9 +624,9 @@ public class SyncEventProcessor {
 
         OrgMember doctor = orgMemberRepository.findByOrganizationIdWithUser(org.getId())
                 .stream()
-                .filter(m -> m.getUser().getUuid().equals(doctorId))
+                .filter(m -> m.getUser().getUuid().equals(doctorId) && m.getDeletedAt() == null)
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("Doctor not found: " + doctorId));
+                .orElseThrow(() -> new RuntimeException("Doctor not found or inactive: " + doctorId));
 
         Queue sourceQueue = queueRepository.findByUuid(sourceQueueId)
                 .orElseThrow(() -> new RuntimeException("Source queue not found: " + sourceQueueId));

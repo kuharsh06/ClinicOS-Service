@@ -51,6 +51,12 @@ public class MemberService {
                     return userRepository.save(newUser);
                 });
 
+        // Block adding a user whose account is scheduled for deletion
+        if (user.getDeletedAt() != null) {
+            throw new BusinessException("USER_ACCOUNT_DELETED",
+                    "This phone number belongs to an account pending deletion");
+        }
+
         // Update name if provided and user had no name
         if (user.getName() == null || user.getName().isEmpty()) {
             user.setName(request.getName());

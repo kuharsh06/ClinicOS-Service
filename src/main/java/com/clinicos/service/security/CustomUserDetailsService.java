@@ -26,6 +26,10 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByPhone(phone)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with phone: " + phone));
 
+        if (user.getDeletedAt() != null) {
+            throw new UsernameNotFoundException("User account has been deleted: " + phone);
+        }
+
         return buildUserDetails(user, null);
     }
 
@@ -34,6 +38,10 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + userId));
 
+        if (user.getDeletedAt() != null) {
+            throw new UsernameNotFoundException("User account has been deleted: " + userId);
+        }
+
         return buildUserDetails(user, deviceId);
     }
 
@@ -41,6 +49,10 @@ public class CustomUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUuid(String uuid, String deviceId) {
         User user = userRepository.findByUuid(uuid)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with uuid: " + uuid));
+
+        if (user.getDeletedAt() != null) {
+            throw new UsernameNotFoundException("User account has been deleted: " + uuid);
+        }
 
         return buildUserDetails(user, deviceId);
     }

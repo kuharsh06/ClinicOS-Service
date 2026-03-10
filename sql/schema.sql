@@ -21,6 +21,8 @@ CREATE TABLE users (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL,
 
+    scheduled_permanent_deletion_at TIMESTAMP NULL,
+
     UNIQUE INDEX idx_users_uuid (uuid),
     UNIQUE INDEX idx_users_phone (country_code, phone)
 );
@@ -665,6 +667,15 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     INDEX idx_audit_action (action, created_at),
     INDEX idx_audit_status (status, created_at),
     INDEX idx_audit_created (created_at)
+);
+
+-- ============================================================================
+-- 12. TEST PHONES (OTP bypass for testing on production)
+-- ============================================================================
+
+CREATE TABLE test_phones (
+    phone VARCHAR(15) NOT NULL PRIMARY KEY,
+    country_code VARCHAR(5) NOT NULL DEFAULT '+91'
 );
 
 -- ============================================================================

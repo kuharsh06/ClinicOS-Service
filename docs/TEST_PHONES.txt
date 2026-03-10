@@ -1,0 +1,18 @@
+ClinicOS — Test Phone Numbers
+==============================
+
+These phones bypass real SMS on production. OTP is always: 123456
+
+Phone           Country Code
+──────────────  ────────────
+0000000000      +91
+1111111111      +91
+2222222222      +91
+3333333333      +91
+4444444444      +91
+
+Manage via SSH:
+
+  Add:     INSERT INTO test_phones VALUES ('9999999999', '+91');
+  Remove:  DELETE FROM test_phones WHERE phone = '9999999999';
+  List:    SELECT * FROM test_phones;

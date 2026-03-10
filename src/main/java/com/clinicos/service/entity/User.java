@@ -24,4 +24,7 @@ public class User extends BaseEntity {
 
     @Column(name = "name", length = 100)
     private String name;
+
+    @Column(name = "scheduled_permanent_deletion_at")
+    private java.time.Instant scheduledPermanentDeletionAt;
 }

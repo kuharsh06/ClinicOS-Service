@@ -43,6 +43,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final OtpAttemptService otpAttemptService;
     private final SmsProvider smsProvider;
+    private final TestPhoneRepository testPhoneRepository;
     private final AppMetrics appMetrics;
 
     @org.springframework.beans.factory.annotation.Value("${clinicos.sms.enabled:false}")
@@ -58,8 +59,11 @@ public class AuthService {
         String phone = request.getPhone();
         String countryCode = request.getCountryCode();
 
+        // Check if this is a registered test phone (skip SMS, use fixed OTP)
+        boolean isTestPhone = testPhoneRepository.existsByPhoneAndCountryCode(phone, countryCode);
+
         // Generate OTP
-        String otp = generateOtp();
+        String otp = generateOtp(isTestPhone);
         String otpHash = passwordEncoder.encode(otp);
 
         // Create OTP request
@@ -74,10 +78,10 @@ public class AuthService {
 
         otpRequestRepository.save(otpRequest);
 
-        log.info("OTP sent to {}{}", countryCode, phone);
+        log.info("OTP sent to {}{}{}", countryCode, phone, isTestPhone ? " (test phone)" : "");
 
-        // Send OTP via SMS if enabled
-        if (smsEnabled) {
+        // Send OTP via SMS if enabled (skip for test phones)
+        if (smsEnabled && !isTestPhone) {
             try {
                 SmsResult result = smsProvider.sendOtp(phone, otp);
                 if (!result.isSuccess()) {
@@ -100,7 +104,7 @@ public class AuthService {
                 .requestId(otpRequest.getUuid())
                 .expiresInSeconds(OTP_EXPIRY_SECONDS)
                 .retryAfterSeconds(OTP_RETRY_AFTER_SECONDS)
-                .devOtp(smsEnabled ? null : otp)
+                .devOtp((smsEnabled && !isTestPhone) ? null : otp)
                 .build();
     }
 
@@ -162,6 +166,15 @@ public class AuthService {
                     return userRepository.save(newUser);
                 });
 
+        // Block login for users with scheduled account deletion
+        if (user.getDeletedAt() != null) {
+            appMetrics.recordAuth("verify", "failure", "account_deleted");
+            throw new BusinessException("ACCOUNT_SCHEDULED_DELETION",
+                    "Account is scheduled for permanent deletion on "
+                            + user.getScheduledPermanentDeletionAt()
+                            + ". Contact support to cancel.");
+        }
+
         if (user.getName() == null) {
             isNewUser = true;
             appMetrics.recordAuth("verify", "success", "new_user");
@@ -181,6 +194,7 @@ public class AuthService {
                         .build());
 
         device.setUser(user);
+        device.setDeletedAt(null); // Clear soft-delete flag if device was previously deleted (re-registration)
         device.setPlatform(parsePlatform(deviceInfo.getPlatform()));
         device.setOsVersion(deviceInfo.getOsVersion());
         device.setAppVersion(deviceInfo.getAppVersion());
@@ -251,6 +265,14 @@ public class AuthService {
 
         // Get user from stored token (more secure than parsing from JWT)
         User user = storedToken.getUser();
+
+        // Block refresh for deleted accounts (defense-in-depth — tokens are revoked on deletion,
+        // but this guards against race conditions or partial revocation)
+        if (user.getDeletedAt() != null) {
+            appMetrics.recordAuth("refresh", "failure", "account_deleted");
+            throw new BusinessException("ACCOUNT_DELETED", "Account has been deleted");
+        }
+
         Integer userId = user.getId();
         String userUuid = user.getUuid();
 
@@ -352,8 +374,8 @@ public class AuthService {
                 .build();
     }
 
-    private String generateOtp() {
-        if (!smsEnabled) {
+    private String generateOtp(boolean isTestPhone) {
+        if (!smsEnabled || isTestPhone) {
             return "123456";
         }
         SecureRandom random = new SecureRandom();
