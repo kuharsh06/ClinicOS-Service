@@ -410,7 +410,7 @@ public class ImageService {
                 .caption(image.getCaption())
                 .tags(fromJsonList(image.getTags()))
                 .visitId(image.getVisit() != null ? image.getVisit().getUuid() : null)
-                .patientId(image.getPatient().getUuid())
+                .patientId(image.getPatient() != null ? image.getPatient().getUuid() : null)
                 .uploadedAt(image.getCreatedAt() != null ? image.getCreatedAt().toString() : null)
                 .build();
     }
