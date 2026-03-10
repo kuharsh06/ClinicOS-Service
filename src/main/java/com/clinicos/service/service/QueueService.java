@@ -110,6 +110,7 @@ public class QueueService {
                 .lastVisitDate(patient.getLastVisitDate() != null ? patient.getLastVisitDate().toString() : null)
                 .lastComplaintTags(lastTags)
                 .isRegular(patient.getIsRegular())
+                .smsConsent(patient.getSmsConsent())
                 .build();
 
         return PatientLookupResponse.builder()
@@ -423,6 +424,7 @@ public class QueueService {
                 .patientPhone(patient.getPhone())
                 .patientAge(patient.getAge())
                 .patientGender(patient.getGender() != null ? patient.getGender().getValue() : null)
+                .smsConsent(patient.getSmsConsent())
                 .isReturningPatient(patient.getTotalVisits() > 0)
                 .totalPreviousVisits(patient.getTotalVisits())
                 .build();

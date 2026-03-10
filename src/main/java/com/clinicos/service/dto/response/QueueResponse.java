@@ -64,6 +64,7 @@ public class QueueResponse {
         private String patientPhone;
         private Integer patientAge;
         private String patientGender;
+        private Boolean smsConsent;
         private Boolean isReturningPatient;
         private Integer totalPreviousVisits;
     }

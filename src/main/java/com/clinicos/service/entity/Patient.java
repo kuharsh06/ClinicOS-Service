@@ -55,4 +55,8 @@ public class Patient extends BaseEntity {
     @Column(name = "is_regular", nullable = false)
     @Builder.Default
     private Boolean isRegular = false;
+
+    @Column(name = "sms_consent", nullable = false)
+    @Builder.Default
+    private Boolean smsConsent = true;
 }

@@ -161,6 +161,7 @@ public class PatientService {
                         .gender(patient.getGender() != null ? patient.getGender().getValue() : null)
                         .totalVisits(patient.getTotalVisits())
                         .isRegular(patient.getIsRegular())
+                        .smsConsent(patient.getSmsConsent())
                         .createdAt(patient.getCreatedAt().toString())
                         .build())
                 .visits(visitDtos)
@@ -313,6 +314,7 @@ public class PatientService {
                 .lastVisitDate(patient.getLastVisitDate() != null ? patient.getLastVisitDate().toString() : null)
                 .lastComplaintTags(parseJsonArray(patient.getLastComplaintTags()))
                 .isRegular(patient.getIsRegular())
+                .smsConsent(patient.getSmsConsent())
                 .createdAt(patient.getCreatedAt().toString())
                 .build();
     }

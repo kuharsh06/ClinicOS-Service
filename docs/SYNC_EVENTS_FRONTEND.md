@@ -154,7 +154,8 @@ Use `serverTimestamp` as `since` for the next pull. If `hasMore: true`, pull aga
       "phone": "9876543210",
       "name": "Meena Devi",
       "age": 32,
-      "gender": "female"
+      "gender": "female",
+      "smsConsent": true
     },
     "complaintTags": ["fever", "body_pain"],
     "complaintText": "Fever, cough since 3 days"
@@ -172,6 +173,7 @@ Use `serverTimestamp` as `since` for the next pull. If `hasMore: true`, pull aga
 | `patient.name` | string | Yes | **Cannot be null** — causes DB error |
 | `patient.age` | integer | No | Can be null |
 | `patient.gender` | string | No | `"male"` / `"female"` / `"other"` / null — **NOT "M"/"F"** |
+| `patient.smsConsent` | boolean | No | Default: `true`. Patient's SMS notification preference |
 | `complaintTags` | string[] | No | Structured tags for analytics |
 | `complaintText` | string | No | Free text |
 
@@ -180,6 +182,7 @@ Use `serverTimestamp` as `since` for the next pull. If `hasMore: true`, pull aga
 - `gender` must be full lowercase word: `"male"`, `"female"`, `"other"` — not `"M"`, `"F"`
 - `patient.name` is required (DB NOT NULL constraint)
 - If `queueId` doesn't exist, a new queue is auto-created for the doctor
+- **Re-visit update:** When an existing patient is re-added, `age`, `gender`, and `smsConsent` are updated on the patient record (only if non-null in the payload). `name` and `phone` are NOT updated.
 
 ---
 

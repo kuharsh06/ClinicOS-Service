@@ -1232,6 +1232,7 @@ interface PatientSummary {
   lastVisitDate: string | null;
   lastComplaintTags: string[];
   isRegular: boolean; // >3 visits
+  smsConsent: boolean; // default true
 }
 ```
 
@@ -1552,6 +1553,7 @@ interface PatientListItem {
   lastVisitDate: string | null;
   lastComplaintTags: string[];
   isRegular: boolean;
+  smsConsent: boolean;
   createdAt: string;
 }
 ```

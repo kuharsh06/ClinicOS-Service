@@ -33,5 +33,6 @@ public class PatientLookupResponse {
         private String lastVisitDate;
         private List<String> lastComplaintTags;
         private Boolean isRegular;  // >3 visits
+        private Boolean smsConsent;
     }
 }

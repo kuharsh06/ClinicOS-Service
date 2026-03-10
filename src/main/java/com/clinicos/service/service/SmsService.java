@@ -134,6 +134,12 @@ public class SmsService {
             throw new BusinessException("Queue entry does not belong to this organization");
         }
 
+        // Check patient SMS consent
+        Patient patient = entry.getPatient();
+        if (!Boolean.TRUE.equals(patient.getSmsConsent())) {
+            throw new BusinessException("SMS_CONSENT_DENIED", "Patient has not consented to SMS notifications");
+        }
+
         OrgMember createdBy = orgMemberRepository.findByOrganizationIdAndUserId(org.getId(), userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member", userId.toString()));
 

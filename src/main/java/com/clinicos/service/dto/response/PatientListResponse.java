@@ -33,6 +33,7 @@ public class PatientListResponse {
         private String lastVisitDate;
         private List<String> lastComplaintTags;
         private Boolean isRegular;
+        private Boolean smsConsent;
         private String createdAt;
     }
 

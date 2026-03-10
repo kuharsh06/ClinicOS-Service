@@ -33,6 +33,7 @@ public class PatientThreadResponse {
         private String gender;
         private Integer totalVisits;
         private Boolean isRegular;
+        private Boolean smsConsent;
         private String createdAt;
     }
 

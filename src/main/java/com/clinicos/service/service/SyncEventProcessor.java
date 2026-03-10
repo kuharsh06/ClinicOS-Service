@@ -239,6 +239,7 @@ public class SyncEventProcessor {
         String name = patientInfo != null ? (String) patientInfo.get("name") : null;
         Integer age = patientInfo != null ? (Integer) patientInfo.get("age") : null;
         String gender = patientInfo != null ? (String) patientInfo.get("gender") : null;
+        Boolean smsConsent = patientInfo != null ? (Boolean) patientInfo.get("smsConsent") : null;
 
         List<String> complaintTags = (List<String>) payload.get("complaintTags");
         String complaintText = (String) payload.get("complaintText");
@@ -258,12 +259,39 @@ public class SyncEventProcessor {
                     .name(name)
                     .age(age)
                     .gender(gender != null ? Gender.valueOf(gender.toUpperCase()) : null)
+                    .smsConsent(smsConsent != null ? smsConsent : true)
                     .totalVisits(0)
                     .isRegular(false)
                     .build();
             patient.setUuid(patientId);
             patientRepository.save(patient);
             log.info("Created new patient: {}", patientId);
+        } else {
+            // Update patient fields on re-visit (only non-null values to prevent data loss)
+            boolean updated = false;
+            if (age != null && !age.equals(patient.getAge())) {
+                patient.setAge(age);
+                updated = true;
+            }
+            if (gender != null) {
+                try {
+                    Gender parsedGender = Gender.valueOf(gender.toUpperCase());
+                    if (!parsedGender.equals(patient.getGender())) {
+                        patient.setGender(parsedGender);
+                        updated = true;
+                    }
+                } catch (IllegalArgumentException e) {
+                    log.warn("Invalid gender '{}' for patient {}, skipping update", gender, patient.getUuid());
+                }
+            }
+            if (smsConsent != null && !smsConsent.equals(patient.getSmsConsent())) {
+                patient.setSmsConsent(smsConsent);
+                updated = true;
+            }
+            if (updated) {
+                patientRepository.save(patient);
+                log.info("Updated patient {} on re-visit", patient.getUuid());
+            }
         }
 
         // Find or create queue
